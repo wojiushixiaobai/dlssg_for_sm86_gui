@@ -1,12 +1,60 @@
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 
 import 'package:ffi/ffi.dart';
+import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:win32/win32.dart';
 
 import 'models.dart';
 import 'vdf.dart';
+
+final _storeArtworkRequests = <int, Future<String?>>{};
+
+Future<String?> steamArtworkUrl(int appId, {http.Client? client}) {
+  if (client != null) return _fetchSteamArtworkUrl(appId, client);
+  final existing = _storeArtworkRequests[appId];
+  if (existing != null) return existing;
+  final request = _fetchSteamArtworkUrl(
+    appId,
+    http.Client(),
+    closeClient: true,
+  );
+  _storeArtworkRequests[appId] = request;
+  request.then((url) {
+    if (url == null) _storeArtworkRequests.remove(appId);
+  });
+  return request;
+}
+
+Future<String?> _fetchSteamArtworkUrl(
+  int appId,
+  http.Client client, {
+  bool closeClient = false,
+}) async {
+  try {
+    final response = await client.get(
+      Uri.https('store.steampowered.com', '/api/appdetails', {
+        'appids': '$appId',
+      }),
+    );
+    if (response.statusCode != 200) return null;
+    final body = jsonDecode(response.body);
+    if (body is! Map) return null;
+    final app = body['$appId'];
+    if (app is! Map || app['success'] != true || app['data'] is! Map) {
+      return null;
+    }
+    final image = (app['data'] as Map)['header_image']?.toString();
+    final uri = image == null ? null : Uri.tryParse(image);
+    return uri != null && uri.hasScheme ? image : null;
+  } catch (_) {
+    return null;
+  } finally {
+    if (closeClient) client.close();
+  }
+}
 
 class SteamScanner {
   SteamScanner({String? Function()? steamPath})
@@ -22,8 +70,9 @@ class SteamScanner {
     final type = calloc<DWORD>();
     try {
       if (RegOpenKeyEx(HKEY_CURRENT_USER, subKey, 0, KEY_READ, opened) !=
-          ERROR_SUCCESS)
+          ERROR_SUCCESS) {
         return null;
+      }
       if (RegQueryValueEx(
                 opened.value,
                 valueName,
@@ -33,8 +82,9 @@ class SteamScanner {
                 size,
               ) !=
               ERROR_SUCCESS ||
-          type.value != REG_SZ)
+          type.value != REG_SZ) {
         return null;
+      }
       final bytes = calloc<BYTE>(size.value + 2);
       try {
         if (RegQueryValueEx(
@@ -45,8 +95,9 @@ class SteamScanner {
               bytes,
               size,
             ) !=
-            ERROR_SUCCESS)
+            ERROR_SUCCESS) {
           return null;
+        }
         return bytes.cast<Utf16>().toDartString();
       } finally {
         calloc.free(bytes);
@@ -64,16 +115,18 @@ class SteamScanner {
   Future<List<GameEntry>> scan({required List<GameEntry> existing}) async {
     final roots = <Directory>[];
     final registryRoot = _steamPath();
-    if (registryRoot != null && Directory(registryRoot).existsSync())
+    if (registryRoot != null && Directory(registryRoot).existsSync()) {
       roots.add(Directory(registryRoot));
+    }
     for (final candidate in [
       r'C:\Program Files (x86)\Steam',
       r'C:\Program Files\Steam',
     ]) {
       final directory = Directory(candidate);
       if (directory.existsSync() &&
-          !roots.any((x) => _samePath(x.path, directory.path)))
+          !roots.any((x) => _samePath(x.path, directory.path))) {
         roots.add(directory);
+      }
     }
     final libraries = <Directory>[...roots];
     for (final root in roots) {
@@ -82,17 +135,17 @@ class SteamScanner {
       for (final path in parseLibraryFolders(await file.readAsString())) {
         final dir = Directory(path);
         if (dir.existsSync() &&
-            !libraries.any((x) => _samePath(x.path, dir.path)))
+            !libraries.any((x) => _samePath(x.path, dir.path))) {
           libraries.add(dir);
+        }
       }
     }
     final lastPlayed = await readLastPlayed(roots);
-    // Steam entries are rebuilt from the currently installed manifests, so
-    // uninstalling a game removes its stale entry. Manual games remain intact.
     final result = existing
         .where((game) => game.source.kind == GameSourceKind.manual)
         .map(_copyGame)
         .toList();
+    final scannedSteam = <int, GameEntry>{};
     final existingSteam = {
       for (final game in existing)
         if (game.source.kind == GameSourceKind.steam &&
@@ -105,31 +158,35 @@ class SteamScanner {
       await for (final item in apps.list()) {
         if (item is! File ||
             !p.basename(item.path).startsWith('appmanifest_') ||
-            p.extension(item.path).toLowerCase() != '.acf')
+            p.extension(item.path).toLowerCase() != '.acf') {
           continue;
+        }
         final manifest = parseAppManifest(await item.readAsString());
         final appId = int.tryParse(manifest['appid'] ?? '');
         if (appId == null) continue;
         final name = manifest['name'] ?? 'Steam App $appId';
         final installDir = manifest['installdir'] ?? '';
         final gameFolder = Directory(p.join(apps.path, 'common', installDir));
-        final detectedExe = await _findGameExecutable(
-          gameFolder,
-          gameName: name,
-          installDir: installDir,
-        );
-        final found = result.indexWhere(
-          (game) =>
-              game.source.kind == GameSourceKind.steam &&
-              game.source.appId == appId,
-        );
-        if (found >= 0) {
-          result[found].name = name;
-          result[found].source = GameSource.steam(appId, library.path);
-          result[found].lastPlayedAt = lastPlayed[appId];
-          if (result[found].exePath == null ||
-              !File(result[found].exePath!).existsSync()) {
-            result[found].exePath = detectedExe;
+        final scanned = scannedSteam[appId];
+        final previous = scanned ?? existingSteam[appId];
+        final detectedExe =
+            previous?.exePath != null &&
+                File(previous!.exePath!).existsSync() &&
+                _isWithin(previous.exePath!, gameFolder.path)
+            ? previous.exePath
+            : await _findGameExecutable(
+                gameFolder,
+                gameName: name,
+                installDir: installDir,
+              );
+        if (scanned != null) {
+          scanned.name = name;
+          scanned.source = GameSource.steam(appId, library.path);
+          if (lastPlayed[appId] != null) {
+            scanned.lastPlayedAt = lastPlayed[appId];
+          }
+          if (scanned.exePath == null || !File(scanned.exePath!).existsSync()) {
+            scanned.exePath = detectedExe;
           }
           continue;
         }
@@ -137,12 +194,15 @@ class SteamScanner {
         if (previousSteam != null) {
           previousSteam.name = name;
           previousSteam.source = GameSource.steam(appId, library.path);
-          previousSteam.lastPlayedAt = lastPlayed[appId];
+          if (lastPlayed[appId] != null) {
+            previousSteam.lastPlayedAt = lastPlayed[appId];
+          }
           if (previousSteam.exePath == null ||
               !File(previousSteam.exePath!).existsSync()) {
             previousSteam.exePath = detectedExe;
           }
           result.add(previousSteam);
+          scannedSteam[appId] = previousSteam;
           continue;
         }
         final manual = result.indexWhere(
@@ -166,8 +226,10 @@ class SteamScanner {
           old.source = game.source;
           old.lastPlayedAt = game.lastPlayedAt;
           result.add(old);
+          scannedSteam[appId] = old;
         } else {
           result.add(game);
+          scannedSteam[appId] = game;
         }
       }
     }
@@ -177,17 +239,19 @@ class SteamScanner {
   static List<String> parseLibraryFolders(String text) {
     final root = VdfParser(text).parse();
     final libraries = root.child('libraryfolders') ?? root;
-    final paths = <String>[];
+    final paths = <String>{};
     void visit(VdfNode node) {
       for (final entry in node.values.entries) {
         if (entry.value is VdfNode) visit(entry.value as VdfNode);
-        if (entry.key.toLowerCase() == 'path' && entry.value is String)
-          paths.add((entry.value as String).replaceAll('\\\\', '\\'));
+        if (entry.key.toLowerCase() == 'path' && entry.value is String) {
+          final path = (entry.value as String).replaceAll('\\\\', '\\');
+          if (path.isNotEmpty) paths.add(path);
+        }
       }
     }
 
     visit(libraries);
-    return paths.where((x) => x.isNotEmpty).toSet().toList();
+    return paths.toList();
   }
 
   static Map<String, String> parseAppManifest(String text) {
@@ -198,15 +262,16 @@ class SteamScanner {
     );
   }
 
-  /// Finds the most likely game executable while skipping installers,
-  /// redistributables, crash reporters, and launchers.
   static Future<String?> _findGameExecutable(
     Directory gameFolder, {
     required String gameName,
     required String installDir,
   }) async {
     if (!await gameFolder.exists()) return null;
-    final candidates = <_ExecutableCandidate>[];
+    final normalizedInstallDir = _normalizedName(installDir);
+    final normalizedGameName = _normalizedName(gameName);
+    File? best;
+    var bestScore = -1 << 30;
     try {
       await for (final item in gameFolder.list(
         recursive: true,
@@ -221,22 +286,23 @@ class SteamScanner {
         final depth = p.split(relative).length - 1;
         final normalizedStem = _normalizedName(stem);
         var score = 0;
-        if (normalizedStem == _normalizedName(installDir)) score += 100;
-        if (normalizedStem == _normalizedName(gameName)) score += 90;
+        if (normalizedStem == normalizedInstallDir) score += 100;
+        if (normalizedStem == normalizedGameName) score += 90;
         if (depth == 0) score += 30;
         if (installDir.isNotEmpty &&
-            normalizedStem.contains(_normalizedName(installDir))) {
+            normalizedStem.contains(normalizedInstallDir)) {
           score += 20;
         }
         score -= depth * 4;
-        candidates.add(_ExecutableCandidate(item, score));
+        if (score > bestScore) {
+          best = item;
+          bestScore = score;
+        }
       }
     } on FileSystemException {
       return null;
     }
-    if (candidates.isEmpty) return null;
-    candidates.sort((a, b) => b.score.compareTo(a.score));
-    return candidates.first.file.path;
+    return best?.path;
   }
 
   static String _normalizedName(String value) =>
@@ -307,9 +373,3 @@ class SteamScanner {
 }
 
 GameEntry _copyGame(GameEntry game) => GameEntry.fromJson(game.toJson());
-
-class _ExecutableCandidate {
-  const _ExecutableCandidate(this.file, this.score);
-  final File file;
-  final int score;
-}

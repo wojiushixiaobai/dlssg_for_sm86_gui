@@ -1,11 +1,16 @@
+import 'dart:ffi' hide Size;
+import 'dart:io';
+
+import 'package:ffi/ffi.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
+import 'package:win32/win32.dart';
 
 import 'manager.dart';
 import 'models.dart';
+import 'steam.dart';
 
-// Colours sampled from the supplied NVIDIA App references.  Keeping these in
-// one place prevents the navigation chrome drifting away from the page body.
 const _nvidiaAppBackground = Color(0xff1b1b1b);
 const _nvidiaSidebar = Color(0xff1c1c1c);
 const _nvidiaHeader = Color(0xff292929);
@@ -13,19 +18,22 @@ const _nvidiaMenuActive = Color(0xff444444);
 const _nvidiaGreen = Color(0xff76b900);
 const _nvidiaText = Color(0xfff2f2f2);
 const _nvidiaMutedText = Color(0xffc8c8c8);
+const _installationGuideUrl = 'https://github.com/sdli1995/dlssg_for_sm86';
 
-// Windows' default Material and glyph fallback fonts render Chinese at
-// noticeably different weights.  Use one UI font for every Material text role
-// so labels, buttons and dropdown values have a consistent Chinese face.
 const _uiFontFamily = 'Microsoft YaHei UI';
 const _uiFontFallback = <String>['Microsoft YaHei', 'Segoe UI', 'Arial'];
+const _uiEmphasisWeight = FontWeight.w700;
 const _controlButtonShape = RoundedRectangleBorder(
   borderRadius: BorderRadius.all(Radius.circular(6)),
 );
+final _buttonMouseCursor = WidgetStateProperty.resolveWith<MouseCursor?>(
+  (states) => states.contains(WidgetState.disabled)
+      ? SystemMouseCursors.basic
+      : SystemMouseCursors.click,
+);
 
-/// NVIDIA App-style inline actions: no persistent outline, with a restrained
-/// dark highlight and border only while the action is targeted.
 final _inlineActionButtonStyle = ButtonStyle(
+  mouseCursor: _buttonMouseCursor,
   foregroundColor: WidgetStateProperty.resolveWith(
     (states) =>
         states.contains(WidgetState.disabled) ? Colors.white38 : _nvidiaText,
@@ -47,17 +55,48 @@ final _inlineActionButtonStyle = ButtonStyle(
   shape: const WidgetStatePropertyAll(_controlButtonShape),
 );
 
-/// Compact version of the inline action treatment for toolbar icons such as
-/// the game-list sort menu.
 final _inlineIconActionButtonStyle = _inlineActionButtonStyle.copyWith(
   fixedSize: const WidgetStatePropertyAll(Size(42, 42)),
   padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+);
+
+final _runningActionButtonStyle = ButtonStyle(
+  mouseCursor: _buttonMouseCursor,
+  foregroundColor: const WidgetStatePropertyAll(Colors.black),
+  backgroundColor: const WidgetStatePropertyAll(_nvidiaGreen),
+  overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+  padding: const WidgetStatePropertyAll(
+    EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+  ),
+  shape: const WidgetStatePropertyAll(_controlButtonShape),
 );
 
 bool _isActionHighlighted(Set<WidgetState> states) =>
     states.contains(WidgetState.hovered) ||
     states.contains(WidgetState.focused) ||
     states.contains(WidgetState.pressed);
+
+void _openInstallationGuide() {
+  if (!Platform.isWindows) return;
+  final operation = 'open'.toNativeUtf16();
+  final url = _installationGuideUrl.toNativeUtf16();
+  try {
+    final result = ShellExecute(
+      0,
+      operation,
+      url,
+      nullptr,
+      nullptr,
+      SW_SHOWNORMAL,
+    );
+    if (result <= 32) {
+      throw StateError('无法使用默认浏览器打开安装说明。');
+    }
+  } finally {
+    calloc.free(operation);
+    calloc.free(url);
+  }
+}
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -87,17 +126,32 @@ class DlssgApp extends StatelessWidget {
         bodyMedium: TextStyle(color: _nvidiaText),
         titleMedium: TextStyle(color: _nvidiaText),
       ),
-      textButtonTheme: const TextButtonThemeData(
-        style: ButtonStyle(shape: WidgetStatePropertyAll(_controlButtonShape)),
+      textButtonTheme: TextButtonThemeData(
+        style: ButtonStyle(
+          mouseCursor: _buttonMouseCursor,
+          shape: const WidgetStatePropertyAll(_controlButtonShape),
+        ),
       ),
-      outlinedButtonTheme: const OutlinedButtonThemeData(
-        style: ButtonStyle(shape: WidgetStatePropertyAll(_controlButtonShape)),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: ButtonStyle(
+          mouseCursor: _buttonMouseCursor,
+          shape: const WidgetStatePropertyAll(_controlButtonShape),
+        ),
       ),
-      filledButtonTheme: const FilledButtonThemeData(
-        style: ButtonStyle(shape: WidgetStatePropertyAll(_controlButtonShape)),
+      filledButtonTheme: FilledButtonThemeData(
+        style: ButtonStyle(
+          mouseCursor: _buttonMouseCursor,
+          shape: const WidgetStatePropertyAll(_controlButtonShape),
+        ),
       ),
-      elevatedButtonTheme: const ElevatedButtonThemeData(
-        style: ButtonStyle(shape: WidgetStatePropertyAll(_controlButtonShape)),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ButtonStyle(
+          mouseCursor: _buttonMouseCursor,
+          shape: const WidgetStatePropertyAll(_controlButtonShape),
+        ),
+      ),
+      iconButtonTheme: IconButtonThemeData(
+        style: ButtonStyle(mouseCursor: _buttonMouseCursor),
       ),
     ),
     home: Shell(manager),
@@ -115,8 +169,11 @@ class _ShellState extends State<Shell> {
   int page = 0;
   bool gameTab = true, busy = false;
   String? selected, note;
+  String? latestDriverVersion;
+  DownloadProgress? downloadProgress;
+  bool updateCheckFailed = false;
   List<GameView> games = [];
-  List<ConfigProfile> profiles = [];
+  final runningGameIds = <String>{};
   ManagerInfo? info;
   @override
   void initState() {
@@ -126,32 +183,61 @@ class _ShellState extends State<Shell> {
 
   Future<void> load() async {
     final found = await widget.manager.listGames();
-    final saved = await widget.manager.listProfiles();
-    if (mounted)
+    String? latest;
+    var latestFailed = false;
+    try {
+      latest = await widget.manager.latestDriverVersion();
+    } catch (_) {
+      latestFailed = true;
+    }
+    if (mounted) {
       setState(() {
         games = found;
-        profiles = saved;
         info = widget.manager.info;
+        latestDriverVersion = latest;
+        updateCheckFailed = latestFailed;
         selected = found.any((x) => x.game.id == selected)
             ? selected
             : (found.isEmpty ? null : found.first.game.id);
       });
+    }
   }
 
-  Future<void> act(Future<void> Function() job, [String? success]) async {
+  Future<bool> _runAction(Future<void> Function() job) async {
     setState(() {
       busy = true;
       note = null;
+      downloadProgress = null;
     });
     try {
       await job();
       await load();
-      if (mounted && success != null) setState(() => note = success);
+      return true;
     } catch (e) {
       if (mounted) setState(() => note = '操作失败：$e');
+      return false;
     } finally {
       if (mounted) setState(() => busy = false);
     }
+  }
+
+  Future<void> act(Future<void> Function() job) async {
+    await _runAction(job);
+  }
+
+  Future<void> launchGame(GameView game) async {
+    final launched = await _runAction(
+      () => widget.manager.launchGame(game.game.id),
+    );
+    if (launched && mounted) {
+      setState(() => runningGameIds.add(game.game.id));
+    }
+  }
+
+  Future<void> removeGame(GameView game) async {
+    if (busy) return;
+    await act(() => widget.manager.removeGame(game.game.id));
+    if (mounted) setState(() => runningGameIds.remove(game.game.id));
   }
 
   Future<void> choose([GameEntry? game]) async {
@@ -179,8 +265,10 @@ class _ShellState extends State<Shell> {
   }
 
   GameView? get current {
-    final found = games.where((x) => x.game.id == selected);
-    return found.isEmpty ? null : found.first;
+    for (final game in games) {
+      if (game.game.id == selected) return game;
+    }
+    return null;
   }
 
   @override
@@ -189,24 +277,25 @@ class _ShellState extends State<Shell> {
       0 => Home(
         games,
         openGame,
-        launch: (game) {
-          act(
-            () => widget.manager.launchGame(game.game.id),
-            '${game.game.name} 已启动。',
-          );
-        },
+        launch: launchGame,
+        runningGameIds: runningGameIds,
       ),
       1 => Drivers(
         info,
+        latestDriverVersion,
+        updateCheckFailed,
         busy,
         () => act(() async {
-          final v = await widget.manager.refreshModFromGithub();
-          if (mounted) setState(() => note = 'Mod $v 已就绪并完成校验。');
+          await widget.manager.refreshModFromGithub(
+            onProgress: (progress) {
+              if (mounted) setState(() => downloadProgress = progress);
+            },
+          );
         }),
+        progress: downloadProgress,
       ),
       _ => Settings(
         games: games,
-        profiles: profiles,
         selected: current,
         gameTab: gameTab,
         hasMod: info?.modAvailable == true,
@@ -214,8 +303,11 @@ class _ShellState extends State<Shell> {
         onTab: (x) => setState(() => gameTab = x),
         onSelect: (id) => setState(() => selected = id),
         choose: choose,
+        remove: removeGame,
         manager: widget.manager,
         act: act,
+        launch: launchGame,
+        runningGameIds: runningGameIds,
       ),
     };
     return Scaffold(
@@ -238,7 +330,7 @@ class _ShellState extends State<Shell> {
                     style: const TextStyle(
                       color: _nvidiaText,
                       fontSize: 24,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: _uiEmphasisWeight,
                     ),
                   ),
                 ),
@@ -269,9 +361,6 @@ class _ShellState extends State<Shell> {
   });
 }
 
-/// The NVIDIA App navigation uses a left accent, rather than a pill-shaped
-/// selection indicator.  A dedicated widget keeps selected and idle entries
-/// visually identical to the supplied references on every page.
 class NvidiaNavigation extends StatelessWidget {
   const NvidiaNavigation({
     required this.selectedIndex,
@@ -347,8 +436,6 @@ class _NvidiaNavigationItemState extends State<_NvidiaNavigationItem> {
               width: 5,
               height: 70,
               decoration: BoxDecoration(
-                // The green bar identifies the open page.  The grey card is
-                // only shown when the pointer is over the menu icon.
                 color: widget.selected ? _nvidiaGreen : Colors.transparent,
                 borderRadius: BorderRadius.circular(3),
               ),
@@ -378,7 +465,7 @@ class _NvidiaNavigationItemState extends State<_NvidiaNavigationItem> {
                       style: TextStyle(
                         color: widget.selected ? _nvidiaText : _nvidiaMutedText,
                         fontSize: 15,
-                        fontWeight: FontWeight.w600,
+                        fontWeight: _uiEmphasisWeight,
                       ),
                     ),
                   ],
@@ -394,12 +481,23 @@ class _NvidiaNavigationItemState extends State<_NvidiaNavigationItem> {
 }
 
 class Home extends StatelessWidget {
-  const Home(this.games, this.open, {this.launch, super.key});
+  const Home(
+    this.games,
+    this.open, {
+    this.launch,
+    this.runningGameIds = const {},
+    super.key,
+  });
   final List<GameView> games;
   final ValueChanged<GameView> open;
   final ValueChanged<GameView>? launch;
+  final Set<String> runningGameIds;
   @override
   Widget build(BuildContext c) {
+    final recent = [
+      for (final game in games)
+        if (game.game.lastPlayedAt != null) game,
+    ]..sort((a, b) => b.game.lastPlayedAt!.compareTo(a.game.lastPlayedAt!));
     final steam = games
         .where((x) => x.game.source.kind == GameSourceKind.steam)
         .toList();
@@ -407,15 +505,35 @@ class Home extends StatelessWidget {
         .where((x) => x.game.source.kind == GameSourceKind.manual)
         .toList();
     return ListView(
-      // Keep the first visible shelf clear of the page header even when the
-      // optional recent-games shelf is empty.
       padding: const EdgeInsets.fromLTRB(30, 30, 30, 30),
       children: [
+        if (recent.isNotEmpty)
+          Shelf(
+            '最近运行',
+            recent.take(10).toList(),
+            open,
+            launch,
+            runningGameIds: runningGameIds,
+          ),
+        if (recent.isNotEmpty && (steam.isNotEmpty || manual.isNotEmpty))
+          const SizedBox(height: 36),
         if (steam.isNotEmpty)
-          Shelf('Steam 库', steam.take(10).toList(), open, launch),
+          Shelf(
+            'Steam 库',
+            steam.take(10).toList(),
+            open,
+            launch,
+            runningGameIds: runningGameIds,
+          ),
         if (steam.isNotEmpty && manual.isNotEmpty) const SizedBox(height: 36),
         if (manual.isNotEmpty)
-          Shelf('其他游戏库', manual.take(10).toList(), open, launch),
+          Shelf(
+            '其他游戏库',
+            manual.take(10).toList(),
+            open,
+            launch,
+            runningGameIds: runningGameIds,
+          ),
         if (games.isEmpty) const Empty('暂未发现游戏。'),
       ],
     );
@@ -423,52 +541,65 @@ class Home extends StatelessWidget {
 }
 
 class Shelf extends StatelessWidget {
-  const Shelf(this.title, this.games, this.open, this.launch, {super.key});
+  const Shelf(
+    this.title,
+    this.games,
+    this.open,
+    this.launch, {
+    this.runningGameIds = const {},
+    super.key,
+  });
   final String title;
   final List<GameView> games;
   final ValueChanged<GameView> open;
   final ValueChanged<GameView>? launch;
+  final Set<String> runningGameIds;
   @override
   Widget build(BuildContext c) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      Row(
-        children: [
-          Expanded(
-            child: Text(
-              title,
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
-            ),
-          ),
-        ],
+      Text(
+        title,
+        style: const TextStyle(fontSize: 20, fontWeight: _uiEmphasisWeight),
       ),
       const SizedBox(height: 11),
-      CardRow(games, open, launch: launch),
+      CardRow(games, open, launch: launch, runningGameIds: runningGameIds),
     ],
   );
 }
 
 class CardRow extends StatefulWidget {
-  const CardRow(this.games, this.open, {this.launch, super.key});
+  const CardRow(
+    this.games,
+    this.open, {
+    this.launch,
+    this.runningGameIds = const {},
+    super.key,
+  });
   final List<GameView> games;
   final ValueChanged<GameView> open;
   final ValueChanged<GameView>? launch;
+  final Set<String> runningGameIds;
 
   @override
   State<CardRow> createState() => _CardRowState();
 }
 
 class _CardRowState extends State<CardRow> {
+  static const _cardWidth = 265.0;
+  static const _cardHeight = 215.0;
+  static const _cardGap = 14.0;
+  static const _edgeSpace = 8.0;
+  static const _arrowClearance = 58.0;
+
   final controller = ScrollController();
   bool showPrevious = false;
   bool showNext = false;
+  int? hoveredIndex;
 
   @override
   void initState() {
     super.initState();
-    // The precise extent is available after layout; show the forward control
-    // initially for a multi-card shelf, then replace it with the measured
-    // availability in the post-frame callback below.
     showNext = widget.games.length > 1;
     controller.addListener(_updateArrowVisibility);
     WidgetsBinding.instance.addPostFrameCallback(
@@ -508,38 +639,74 @@ class _CardRowState extends State<CardRow> {
   }
 
   @override
-  Widget build(BuildContext c) => SizedBox(
-    height: 215,
-    child: Stack(
-      children: [
-        Positioned.fill(
-          child: ListView.separated(
-            controller: controller,
-            scrollDirection: Axis.horizontal,
-            itemCount: widget.games.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 14),
-            itemBuilder: (_, i) => GameCard(
-              widget.games[i],
-              () => widget.open(widget.games[i]),
-              launch: widget.launch == null
-                  ? null
-                  : () => widget.launch!(widget.games[i]),
+  Widget build(BuildContext c) {
+    final navigationInset = showPrevious || showNext ? _arrowClearance : 0.0;
+    final contentWidth =
+        _edgeSpace * 2 +
+        widget.games.length * _cardWidth +
+        (widget.games.length - 1) * _cardGap;
+    Widget card(int index) => Positioned(
+      key: ValueKey('home-game-${widget.games[index].game.id}'),
+      left: _edgeSpace + index * (_cardWidth + _cardGap),
+      top: 14,
+      width: _cardWidth,
+      height: _cardHeight,
+      child: GameCard(
+        widget.games[index],
+        () => widget.open(widget.games[index]),
+        selected: hoveredIndex == index,
+        onHoverChanged: (hovered) {
+          if ((hoveredIndex == index && !hovered) ||
+              (hoveredIndex != index && hovered)) {
+            setState(() => hoveredIndex = hovered ? index : null);
+          }
+        },
+        running: widget.runningGameIds.contains(widget.games[index].game.id),
+        launch: widget.launch == null
+            ? null
+            : () => widget.launch!(widget.games[index]),
+      ),
+    );
+
+    return SizedBox(
+      height: 239,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: navigationInset),
+              child: SingleChildScrollView(
+                controller: controller,
+                scrollDirection: Axis.horizontal,
+                child: SizedBox(
+                  width: contentWidth,
+                  height: 239,
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      for (var i = 0; i < widget.games.length; i++)
+                        if (i != hoveredIndex) card(i),
+                      if (hoveredIndex case final index?) card(index),
+                    ],
+                  ),
+                ),
+              ),
             ),
           ),
-        ),
-        if (showPrevious)
-          Align(
-            alignment: Alignment.centerLeft,
-            child: _LibraryArrow(Icons.chevron_left, () => move(-560)),
-          ),
-        if (showNext)
-          Align(
-            alignment: Alignment.centerRight,
-            child: _LibraryArrow(Icons.chevron_right, () => move(560)),
-          ),
-      ],
-    ),
-  );
+          if (showPrevious)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: _LibraryArrow(Icons.chevron_left, () => move(-560)),
+            ),
+          if (showNext)
+            Align(
+              alignment: Alignment.centerRight,
+              child: _LibraryArrow(Icons.chevron_right, () => move(560)),
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 class _LibraryArrow extends StatelessWidget {
@@ -565,17 +732,37 @@ class _LibraryArrow extends StatelessWidget {
 }
 
 class GameCard extends StatefulWidget {
-  const GameCard(this.game, this.tap, {this.launch, super.key});
+  const GameCard(
+    this.game,
+    this.tap, {
+    this.launch,
+    this.running = false,
+    this.selected,
+    this.onHoverChanged,
+    super.key,
+  });
   final GameView game;
   final VoidCallback tap;
   final VoidCallback? launch;
+  final bool running;
+  final bool? selected;
+  final ValueChanged<bool>? onHoverChanged;
 
   @override
   State<GameCard> createState() => _GameCardState();
 }
 
 class _GameCardState extends State<GameCard> {
-  bool hovered = false;
+  bool localHovered = false;
+
+  bool get hovered => widget.selected ?? localHovered;
+
+  void changeHover(bool value) {
+    if (widget.selected == null && localHovered != value) {
+      setState(() => localHovered = value);
+    }
+    widget.onHoverChanged?.call(value);
+  }
 
   @override
   Widget build(BuildContext c) {
@@ -583,125 +770,147 @@ class _GameCardState extends State<GameCard> {
     final steam = game.game.source.kind == GameSourceKind.steam;
     final canLaunch =
         game.target == TargetState.ready &&
-        (game.mod.kind == ModStateKind.applied ||
-            game.mod.kind == ModStateKind.outdated);
+        game.mod.kind == ModStateKind.applied;
     return SizedBox(
       width: 265,
-      child: Card(
-        margin: EdgeInsets.zero,
-        color: const Color(0xff272727),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-        clipBehavior: Clip.antiAlias,
+      child: AnimatedScale(
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeOutCubic,
+        alignment: Alignment.bottomCenter,
+        scale: hovered ? 1.06 : 1,
         child: MouseRegion(
-          onEnter: (_) => setState(() => hovered = true),
-          onExit: (_) => setState(() => hovered = false),
-          child: Stack(
-            children: [
-              Positioned.fill(
-                child: InkWell(
-                  onTap: widget.tap,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: steam
-                            ? Image.network(
-                                'https://cdn.akamai.steamstatic.com/steam/apps/${game.game.source.appId}/header.jpg',
-                                width: double.infinity,
-                                fit: BoxFit.cover,
-                                errorBuilder: (_, __, ___) => const Cover(),
-                              )
-                            : const Cover(),
+          cursor: SystemMouseCursors.click,
+          onEnter: (_) => changeHover(true),
+          onExit: (_) => changeHover(false),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 320),
+            curve: Curves.easeOutCubic,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(4),
+              boxShadow: hovered
+                  ? const [
+                      BoxShadow(
+                        color: Color(0x66000000),
+                        blurRadius: 8,
+                        offset: Offset(0, 3),
                       ),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(13, 9, 13, 12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              game.game.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            Text(
-                              steam
-                                  ? 'Steam · ${game.game.source.appId}'
-                                  : '手动添加',
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: Colors.white60,
-                              ),
-                            ),
-                            const SizedBox(height: 5),
-                            Chip(
-                              label: Text(
-                                modLabel(game.mod),
-                                style: const TextStyle(fontSize: 11),
-                              ),
-                              visualDensity: VisualDensity.compact,
-                              backgroundColor:
-                                  game.mod.kind == ModStateKind.applied
-                                  ? const Color(0xff274915)
-                                  : game.mod.kind == ModStateKind.outdated
-                                  ? const Color(0xff5a4915)
-                                  : game.mod.kind == ModStateKind.broken
-                                  ? const Color(0xff542626)
-                                  : null,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                    ]
+                  : null,
+            ),
+            child: Card(
+              margin: EdgeInsets.zero,
+              color: const Color(0xff272727),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(4),
               ),
-              if (hovered)
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  top: 0,
-                  bottom: 76,
-                  child: ColoredBox(
-                    color: const Color(0xbb000000),
-                    child: Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: widget.tap,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Stack(
+                        fit: StackFit.expand,
                         children: [
-                          SizedBox(
-                            width: 106,
-                            child: ElevatedButton(
-                              onPressed: widget.tap,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: _nvidiaGreen,
-                                foregroundColor: Colors.black,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(4),
+                          steam
+                              ? SteamArtwork(
+                                  appId: game.game.source.appId!,
+                                  fit: BoxFit.cover,
+                                  fallback: const Cover(),
+                                )
+                              : const Cover(),
+                          if (hovered)
+                            ColoredBox(
+                              color: const Color(0x88000000),
+                              child: Center(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    SizedBox(
+                                      width: 106,
+                                      child: ElevatedButton(
+                                        onPressed: widget.tap,
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: _nvidiaGreen,
+                                          foregroundColor: Colors.black,
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(
+                                              4,
+                                            ),
+                                          ),
+                                        ),
+                                        child: const Text('设置'),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 9),
+                                    SizedBox(
+                                      width: 106,
+                                      child: TextButton(
+                                        onPressed: canLaunch && !widget.running
+                                            ? widget.launch
+                                            : null,
+                                        style: widget.running
+                                            ? _runningActionButtonStyle
+                                            : TextButton.styleFrom(
+                                                foregroundColor: Colors.white,
+                                                disabledForegroundColor:
+                                                    const Color(0xff747474),
+                                              ),
+                                        child: Text(
+                                          widget.running ? '运行中' : '启动',
+                                          style: const TextStyle(
+                                            fontWeight: _uiEmphasisWeight,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                              child: const Text('设置'),
+                            ),
+                        ],
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(13, 9, 13, 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            game.game.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          Text(
+                            steam
+                                ? 'Steam · ${game.game.source.appId}'
+                                : '手动添加',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.white60,
                             ),
                           ),
-                          const SizedBox(height: 9),
-                          TextButton(
-                            onPressed: canLaunch ? widget.launch : null,
-                            style: TextButton.styleFrom(
-                              foregroundColor: Colors.white,
-                              disabledForegroundColor: const Color(0xff747474),
+                          const SizedBox(height: 5),
+                          Chip(
+                            label: Text(
+                              modLabel(game.mod),
+                              style: const TextStyle(fontSize: 11),
                             ),
-                            child: const Text(
-                              '启动',
-                              style: TextStyle(fontWeight: FontWeight.w600),
-                            ),
+                            visualDensity: VisualDensity.compact,
+                            backgroundColor:
+                                game.mod.kind == ModStateKind.applied
+                                ? const Color(0xff274915)
+                                : null,
                           ),
                         ],
                       ),
                     ),
-                  ),
+                  ],
                 ),
-            ],
+              ),
+            ),
           ),
         ),
       ),
@@ -740,144 +949,348 @@ class Empty extends StatelessWidget {
   );
 }
 
-String modLabel(ModStatus x) => x.kind == ModStateKind.applied
-    ? '已应用 · ${x.version}'
-    : x.kind == ModStateKind.outdated
-    ? '需要更新 · ${x.version ?? '上游历史版本'}'
-    : x.kind == ModStateKind.broken
-    ? '安装异常'
-    : '未应用';
+bool _hasManageableConfig(ModStatus status) =>
+    status.kind == ModStateKind.applied;
+
+bool _needsDriverUpdate(ModStatus status, String? currentVersion) =>
+    status.kind == ModStateKind.applied &&
+    (status.version == '未知版本' ||
+        (currentVersion != null && status.version != currentVersion));
+
+String modLabel(ModStatus x) =>
+    x.kind == ModStateKind.applied ? '已安装 · ${x.version ?? '未知版本'}' : '未安装';
+
+String _formatBytes(int bytes) {
+  if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(0)} KB';
+  return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+}
+
+class _DriverDownloadProgress extends StatelessWidget {
+  const _DriverDownloadProgress(this.progress);
+
+  final DownloadProgress? progress;
+
+  @override
+  Widget build(BuildContext context) {
+    final current = progress;
+    final fraction = current?.fraction;
+    final verifying = current?.phase == DownloadPhase.verifying;
+    final detail = current == null
+        ? '正在准备下载…'
+        : verifying
+        ? '下载完成，正在校验驱动程序包…'
+        : fraction == null
+        ? '已下载 ${_formatBytes(current.downloadedBytes)}'
+        : '已下载 ${_formatBytes(current.downloadedBytes)} / '
+              '${_formatBytes(current.totalBytes!)} '
+              '(${(fraction * 100).toStringAsFixed(0)}%)';
+    final title = verifying ? '正在校验…' : '正在下载……';
+    final percent = fraction == null ? null : '${(fraction * 100).round()}%';
+    return Semantics(
+      label: detail,
+      value: percent,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: _uiEmphasisWeight,
+                ),
+              ),
+              const Spacer(),
+              if (percent != null)
+                Text(
+                  percent,
+                  style: const TextStyle(fontWeight: _uiEmphasisWeight),
+                ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          LinearProgressIndicator(
+            value: verifying ? 1 : fraction,
+            minHeight: 4,
+            color: _nvidiaGreen,
+            backgroundColor: const Color(0xff3b3b3b),
+          ),
+          const SizedBox(height: 6),
+          Text(detail, style: const TextStyle(color: _nvidiaMutedText)),
+        ],
+      ),
+    );
+  }
+}
 
 class Drivers extends StatelessWidget {
-  const Drivers(this.info, this.busy, this.download, {super.key});
+  const Drivers(
+    this.info,
+    this.latestVersion,
+    this.updateCheckFailed,
+    this.busy,
+    this.download, {
+    this.progress,
+    super.key,
+  });
   final ManagerInfo? info;
+  final String? latestVersion;
+  final bool updateCheckFailed;
   final bool busy;
   final VoidCallback download;
+  final DownloadProgress? progress;
   @override
   Widget build(BuildContext c) {
     final ready = info?.modAvailable == true;
-    return ListView(
-      padding: const EdgeInsets.all(30),
+    final installedVersion = info?.installedVersion;
+    final updateAvailable =
+        latestVersion != null && latestVersion != installedVersion;
+    final upToDate = ready && latestVersion == installedVersion;
+    final updateTitle = updateCheckFailed
+        ? '暂时无法检查更新'
+        : updateAvailable
+        ? ready
+              ? '有可用的驱动程序更新'
+              : '有可用的驱动程序'
+        : upToDate
+        ? '驱动程序已是最新版本'
+        : '正在检查驱动程序更新';
+    final updateDetail = updateCheckFailed
+        ? '请检查网络连接后重试。'
+        : latestVersion != null
+        ? '最新版本：$latestVersion'
+        : '正在读取上游 latest Release。';
+    final pageStatus = updateCheckFailed
+        ? '更新检查失败'
+        : updateAvailable
+        ? '有可用更新'
+        : upToDate
+        ? '驱动程序已是最新版本'
+        : '检查更新中';
+    final downloadLabel = updateAvailable
+        ? '下载'
+        : ready
+        ? '重新下载'
+        : '下载';
+    final updateInfo = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Container(
-          padding: const EdgeInsets.all(34),
-          decoration: BoxDecoration(
-            color: const Color(0xff1a211b),
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
+        Text(
+          updateAvailable ? '新 - DLSSG for SM86 驱动程序' : 'DLSSG for SM86 驱动程序',
+          style: const TextStyle(fontSize: 21, fontWeight: _uiEmphasisWeight),
+        ),
+        const SizedBox(height: 3),
+        Text(updateDetail, style: const TextStyle(color: _nvidiaMutedText)),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            const Text('已安装版本', style: TextStyle(color: _nvidiaMutedText)),
+            const SizedBox(width: 8),
+            Text(installedVersion ?? '尚未安装'),
+          ],
+        ),
+      ],
+    );
+    final downloadControl = busy
+        ? _DriverDownloadProgress(progress)
+        : Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton(
+              onPressed: download,
+              style: FilledButton.styleFrom(
+                backgroundColor: _nvidiaGreen,
+                foregroundColor: Colors.black,
+                minimumSize: const Size(80, 44),
+              ),
+              child: Text(downloadLabel),
+            ),
+          );
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(30, 18, 30, 30),
+      children: [
+        Row(
+          children: [
+            Text(
+              pageStatus,
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: _uiEmphasisWeight,
+              ),
+            ),
+            const Spacer(),
+            const Text(
+              'DLSSG for SM86 驱动程序',
+              style: TextStyle(color: _nvidiaMutedText, fontSize: 16),
+            ),
+            const SizedBox(width: 12),
+            const Icon(Icons.expand_more, color: _nvidiaMutedText),
+          ],
+        ),
+        const Divider(height: 26),
+        LayoutBuilder(
+          builder: (context, constraints) => constraints.maxWidth < 920
+              ? Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'DLSSG FOR SM86',
-                      style: TextStyle(color: Color(0xff9dcc3a)),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      ready ? 'Mod 已就绪' : '下载 Mod 后开始配置',
-                      style: const TextStyle(
-                        fontSize: 29,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      ready
-                          ? '已验证的 Mod 包可用于安装、更新和配置应用。'
-                          : '配置定义和游戏设置已锁定；请先下载并校验发布包。',
-                      style: const TextStyle(color: Colors.white70),
-                    ),
-                    const SizedBox(height: 20),
-                    FilledButton.icon(
-                      onPressed: busy ? null : download,
-                      icon: const Icon(Icons.download),
-                      label: Text(
-                        busy
-                            ? '正在验证…'
-                            : ready
-                            ? '检查并下载更新'
-                            : '下载 Mod',
-                      ),
-                    ),
+                    updateInfo,
+                    const SizedBox(height: 16),
+                    SizedBox(width: double.infinity, child: downloadControl),
                   ],
-                ),
-              ),
-              Container(
-                width: 175,
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  color: ready
-                      ? const Color(0xff294618)
-                      : const Color(0xff303335),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Column(
+                )
+              : Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(
-                      ready ? Icons.verified : Icons.download_for_offline,
-                      size: 38,
-                      color: ready ? const Color(0xff9dcc3a) : Colors.white54,
-                    ),
-                    Text(
-                      info?.installedVersion ?? '未下载',
-                      style: const TextStyle(
-                        fontSize: 19,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    Text(
-                      ready
-                          ? '${info?.knownHashes ?? 0} 个历史 DLL 哈希'
-                          : '配置功能已禁用',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.white60),
-                    ),
+                    Expanded(child: updateInfo),
+                    const SizedBox(width: 34),
+                    SizedBox(width: 520, child: downloadControl),
                   ],
+                ),
+        ),
+        const SizedBox(height: 18),
+        _DriverUpdateHero(
+          title: updateTitle,
+          detail: updateCheckFailed
+              ? '暂时无法获取上游版本信息。恢复网络后可再次下载并校验驱动程序。'
+              : '下载经过校验的最新版驱动程序包，为支持的游戏启用 DLSSG for SM86。',
+        ),
+        const SizedBox(height: 28),
+        Container(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+          decoration: const BoxDecoration(
+            border: Border(left: BorderSide(color: _nvidiaGreen, width: 5)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '最新版本会从 sdli1995/dlssg_for_sm86 的 GitHub latest Release 获取。下载完成后会校验所需 DLL 并缓存安装包；不会改动已安装游戏的 INI。',
+                style: TextStyle(color: _nvidiaMutedText, height: 1.55),
+              ),
+              const SizedBox(height: 5),
+              TextButton(
+                onPressed: _openInstallationGuide,
+                style: TextButton.styleFrom(
+                  foregroundColor: _nvidiaText,
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                ),
+                child: const Text(
+                  '了解安装方式',
+                  style: TextStyle(fontWeight: _uiEmphasisWeight),
                 ),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 20),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(22),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  '驱动程序状态',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
-                ),
-                const Divider(height: 30),
-                InfoLine('Mod 来源', 'wojiushixiaobai/dlssg_for_sm86_gui'),
-                InfoLine('当前缓存', info?.installedVersion ?? '尚未下载'),
-                const InfoLine('更新行为', '不会改动任何已安装游戏的 INI'),
-              ],
-            ),
-          ),
+        const SizedBox(height: 28),
+        const Divider(height: 1),
+        const SizedBox(height: 15),
+        Text(
+          ready ? '已安装 - DLSSG for SM86 驱动程序' : '尚未安装 - DLSSG for SM86 驱动程序',
+          style: const TextStyle(fontSize: 19, fontWeight: _uiEmphasisWeight),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          installedVersion == null ? '版本：尚未安装' : '版本：$installedVersion',
+          style: const TextStyle(color: _nvidiaMutedText),
         ),
       ],
     );
   }
 }
 
-class InfoLine extends StatelessWidget {
-  const InfoLine(this.a, this.b, {super.key});
-  final String a, b;
+class _DriverUpdateHero extends StatelessWidget {
+  const _DriverUpdateHero({required this.title, required this.detail});
+
+  final String title;
+  final String detail;
+
   @override
-  Widget build(BuildContext c) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 6),
-    child: Row(
+  Widget build(BuildContext context) => Container(
+    constraints: const BoxConstraints(minHeight: 224),
+    clipBehavior: Clip.antiAlias,
+    decoration: BoxDecoration(
+      color: const Color(0xff080a0b),
+      borderRadius: BorderRadius.circular(9),
+      border: Border.all(color: const Color(0xff242424)),
+    ),
+    child: Stack(
       children: [
-        SizedBox(
-          width: 105,
-          child: Text(a, style: const TextStyle(color: Colors.white60)),
+        Positioned(
+          right: -70,
+          top: -120,
+          child: Container(
+            width: 440,
+            height: 440,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(
+                colors: [
+                  _nvidiaGreen.withValues(alpha: 0.22),
+                  const Color(0xff101a0c).withValues(alpha: 0.1),
+                  Colors.transparent,
+                ],
+                stops: const [0, .45, 1],
+              ),
+            ),
+          ),
         ),
-        Expanded(child: SelectableText(b)),
+        Row(
+          children: [
+            Expanded(
+              flex: 4,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(100, 32, 28, 28),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'DLSSG for SM86\n驱动程序更新',
+                      style: const TextStyle(
+                        fontSize: 27,
+                        fontWeight: _uiEmphasisWeight,
+                        height: 1.3,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        color: _nvidiaGreen,
+                        fontWeight: _uiEmphasisWeight,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      detail,
+                      style: const TextStyle(
+                        color: _nvidiaMutedText,
+                        height: 1.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            Expanded(
+              flex: 5,
+              child: Center(
+                child: Icon(
+                  title.contains('失败') ? Icons.error_outline : Icons.memory,
+                  size: 96,
+                  color: _nvidiaGreen.withValues(alpha: 0.75),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const Positioned(
+          left: 42,
+          top: 0,
+          bottom: 0,
+          child: VerticalDivider(width: 1, thickness: 3, color: _nvidiaGreen),
+        ),
       ],
     ),
   );
@@ -887,7 +1300,6 @@ class Settings extends StatelessWidget {
   const Settings({
     super.key,
     required this.games,
-    required this.profiles,
     required this.selected,
     required this.gameTab,
     required this.hasMod,
@@ -895,18 +1307,23 @@ class Settings extends StatelessWidget {
     required this.onTab,
     required this.onSelect,
     required this.choose,
+    required this.remove,
     required this.manager,
     required this.act,
+    required this.launch,
+    required this.runningGameIds,
   });
   final List<GameView> games;
-  final List<ConfigProfile> profiles;
   final GameView? selected;
   final bool gameTab, hasMod, busy;
   final ValueChanged<bool> onTab;
   final ValueChanged<String> onSelect;
   final Future<void> Function([GameEntry?]) choose;
+  final ValueChanged<GameView> remove;
   final ModManager manager;
-  final Future<void> Function(Future<void> Function(), [String?]) act;
+  final Future<void> Function(Future<void> Function()) act;
+  final ValueChanged<GameView> launch;
+  final Set<String> runningGameIds;
   @override
   Widget build(BuildContext c) => Padding(
     padding: const EdgeInsets.fromLTRB(30, 0, 30, 30),
@@ -928,65 +1345,83 @@ class Settings extends StatelessWidget {
                   children: [
                     SizedBox(
                       width: 330,
-                      child: GameList(games, selected?.game.id, onSelect, () {
-                        choose();
-                      }),
+                      child: GameList(
+                        games,
+                        selected?.game.id,
+                        onSelect,
+                        () => choose(),
+                        remove,
+                      ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: GameSettings(
                         selected,
-                        profiles,
                         hasMod,
                         busy,
                         choose,
                         manager,
                         act,
+                        launch: launch,
+                        running: runningGameIds.contains(selected?.game.id),
                       ),
                     ),
                   ],
                 )
-              : GlobalSettings(profiles, hasMod, manager, act),
+              : GlobalSettings(hasMod, manager, act),
         ),
       ],
     ),
   );
 }
 
-class _SettingsTab extends StatelessWidget {
+class _SettingsTab extends StatefulWidget {
   const _SettingsTab(this.label, this.selected, this.tap);
   final String label;
   final bool selected;
   final VoidCallback tap;
 
   @override
+  State<_SettingsTab> createState() => _SettingsTabState();
+}
+
+class _SettingsTabState extends State<_SettingsTab> {
+  bool hovered = false;
+
+  @override
   Widget build(BuildContext c) => SizedBox(
     width: 130,
     height: 60,
-    child: Semantics(
-      button: true,
-      selected: selected,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: tap,
-        child: Container(
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            // The reference tabs use only this underline for selection.  A
-            // GestureDetector avoids Material ink/highlight layers entirely.
-            border: Border(
-              bottom: BorderSide(
-                color: selected ? const Color(0xff76b900) : Colors.transparent,
-                width: 3,
+    child: MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => hovered = true),
+      onExit: (_) => setState(() => hovered = false),
+      child: Semantics(
+        button: true,
+        selected: widget.selected,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.tap,
+          child: Container(
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: hovered ? _nvidiaMenuActive : Colors.transparent,
+              border: Border(
+                bottom: BorderSide(
+                  color: widget.selected
+                      ? const Color(0xff76b900)
+                      : Colors.transparent,
+                  width: 3,
+                ),
               ),
             ),
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: selected ? Colors.white : Colors.white60,
+            child: Text(
+              widget.label,
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: _uiEmphasisWeight,
+                color: widget.selected ? Colors.white : Colors.white60,
+              ),
             ),
           ),
         ),
@@ -1018,11 +1453,19 @@ class Lock extends StatelessWidget {
 enum GameSort { name, newest }
 
 class GameList extends StatefulWidget {
-  const GameList(this.games, this.selected, this.change, this.add, {super.key});
+  const GameList(
+    this.games,
+    this.selected,
+    this.change,
+    this.add,
+    this.remove, {
+    super.key,
+  });
   final List<GameView> games;
   final String? selected;
   final ValueChanged<String> change;
   final VoidCallback add;
+  final ValueChanged<GameView> remove;
 
   @override
   State<GameList> createState() => _GameListState();
@@ -1063,7 +1506,7 @@ class _GameListState extends State<GameList> {
                   '程序  ${widget.games.length}',
                   style: const TextStyle(
                     fontSize: 17,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: _uiEmphasisWeight,
                   ),
                 ),
               ),
@@ -1095,6 +1538,7 @@ class _GameListState extends State<GameList> {
                   itemBuilder: (_, i) {
                     final x = ordered[i];
                     return ListTile(
+                      mouseCursor: SystemMouseCursors.click,
                       selected: x.game.id == widget.selected,
                       selectedTileColor: const Color(0xff2b3d1c),
                       leading: GameIcon(x.game),
@@ -1111,17 +1555,14 @@ class _GameListState extends State<GameList> {
                       trailing: Icon(
                         x.mod.kind == ModStateKind.applied
                             ? Icons.check_circle
-                            : x.mod.kind == ModStateKind.outdated
-                            ? Icons.system_update_alt
                             : Icons.circle_outlined,
                         color: x.mod.kind == ModStateKind.applied
                             ? const Color(0xff9dcc3a)
-                            : x.mod.kind == ModStateKind.outdated
-                            ? Colors.amberAccent
                             : Colors.white38,
                         size: 18,
                       ),
                       onTap: () => widget.change(x.game.id),
+                      onLongPress: () => widget.remove(x),
                     );
                   },
                 ),
@@ -1134,20 +1575,22 @@ class _GameListState extends State<GameList> {
 class GameSettings extends StatefulWidget {
   const GameSettings(
     this.view,
-    this.profiles,
     this.hasMod,
     this.busy,
     this.choose,
     this.manager,
     this.act, {
+    required this.launch,
+    required this.running,
     super.key,
   });
   final GameView? view;
-  final List<ConfigProfile> profiles;
   final bool hasMod, busy;
   final Future<void> Function([GameEntry?]) choose;
   final ModManager manager;
-  final Future<void> Function(Future<void> Function(), [String?]) act;
+  final Future<void> Function(Future<void> Function()) act;
+  final ValueChanged<GameView> launch;
+  final bool running;
   @override
   State<GameSettings> createState() => _GameSettingsState();
 }
@@ -1160,7 +1603,10 @@ class _GameSettingsState extends State<GameSettings> {
   @override
   void initState() {
     super.initState();
-    proxy = widget.view?.game.selectedProxy ?? defaultProxy;
+    proxy =
+        widget.view?.mod.proxy ??
+        widget.view?.game.selectedProxy ??
+        defaultProxy;
     _loadConfig();
   }
 
@@ -1169,7 +1615,10 @@ class _GameSettingsState extends State<GameSettings> {
     super.didUpdateWidget(old);
     final gameChanged = old.view?.game.id != widget.view?.game.id;
     if (gameChanged) {
-      proxy = widget.view?.game.selectedProxy ?? defaultProxy;
+      proxy =
+          widget.view?.mod.proxy ??
+          widget.view?.game.selectedProxy ??
+          defaultProxy;
       config = null;
     }
     if (gameChanged ||
@@ -1183,10 +1632,8 @@ class _GameSettingsState extends State<GameSettings> {
   Future<void> _loadConfig() async {
     final view = widget.view;
     final id = view?.game.id;
-    final installed =
-        view?.mod.kind == ModStateKind.applied ||
-        view?.mod.kind == ModStateKind.outdated;
-    if (id == null || !installed) {
+    final manageable = view != null && _hasManageableConfig(view.mod);
+    if (id == null || !manageable) {
       if (mounted) {
         setState(() {
           config = null;
@@ -1215,6 +1662,13 @@ class _GameSettingsState extends State<GameSettings> {
     await widget.act(() => widget.manager.saveGameConfig(v.game.id, next));
   }
 
+  Future<void> _useGlobalConfig() async {
+    final view = widget.view;
+    if (view == null) return;
+    await widget.act(() => widget.manager.useGlobalConfigForGame(view.game.id));
+    await _loadConfig();
+  }
+
   @override
   Widget build(BuildContext c) {
     final v = widget.view;
@@ -1222,10 +1676,12 @@ class _GameSettingsState extends State<GameSettings> {
     final g = v.game;
     final canInstall =
         widget.hasMod && v.target == TargetState.ready && !widget.busy;
-    final installed =
-        v.mod.kind == ModStateKind.applied ||
-        v.mod.kind == ModStateKind.outdated;
-    final canEdit = installed && !widget.busy;
+    final manageableConfig = _hasManageableConfig(v.mod);
+    final canEdit = manageableConfig && !widget.busy;
+    final needsUpdate = _needsDriverUpdate(
+      v.mod,
+      widget.manager.info.installedVersion,
+    );
     return Card(
       child: ListView(
         padding: const EdgeInsets.all(25),
@@ -1233,31 +1689,74 @@ class _GameSettingsState extends State<GameSettings> {
           _GameControlHeader(
             game: g,
             status: v.mod,
-            onChooseExe: () => widget.choose(g),
+            onRun:
+                v.target == TargetState.ready && !widget.busy && !widget.running
+                ? () => widget.launch(v)
+                : null,
+            running: widget.running,
             proxy: proxy,
-            onProxyChanged: installed || widget.busy
+            onProxyChanged: v.mod.kind == ModStateKind.applied || widget.busy
                 ? null
                 : (x) => setState(() => proxy = x!),
-            action: installed
-                ? TextButton.icon(
-                    style: _inlineActionButtonStyle,
-                    onPressed: widget.busy
-                        ? null
-                        : () => widget.act(
-                            () => widget.manager.uninstallMod(g.id),
-                          ),
-                    icon: const Icon(Icons.settings_backup_restore),
-                    label: const Text('恢复'),
+            action: v.mod.kind == ModStateKind.applied
+                ? Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (needsUpdate)
+                        TextButton(
+                          style: _inlineActionButtonStyle,
+                          onPressed: canInstall ? () => install(c, v) : null,
+                          child: const Text('更新'),
+                        ),
+                      TextButton(
+                        style: _inlineActionButtonStyle,
+                        onPressed: widget.busy
+                            ? null
+                            : () => widget.act(
+                                () => widget.manager.uninstallMod(g.id),
+                              ),
+                        child: const Text('卸载'),
+                      ),
+                    ],
                   )
-                : TextButton.icon(
+                : TextButton(
                     style: _inlineActionButtonStyle,
                     onPressed: canInstall ? () => install(c, v) : null,
-                    icon: const Icon(Icons.install_desktop),
-                    label: const Text('安装'),
+                    child: Text(manageableConfig ? '安装代理' : '安装'),
                   ),
           ),
           const SizedBox(height: 26),
-          if (!installed)
+          const _ApplicationSettingsTitle(),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+            decoration: BoxDecoration(
+              color: const Color(0xff1d1d1d),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: SetRow(
+              'EXE 文件路径',
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      g.exePath ?? '尚未指定',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  TextButton(
+                    style: _inlineActionButtonStyle,
+                    onPressed: widget.busy ? null : () => widget.choose(g),
+                    child: const Text('自定义路径'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 26),
+          if (!manageableConfig)
             const _DriverSettingsDisabled()
           else if (loadingConfig || config == null)
             const Padding(
@@ -1266,6 +1765,22 @@ class _GameSettingsState extends State<GameSettings> {
             )
           else ...[
             const _DriverSettingsTitle(),
+            const SizedBox(height: 8),
+            SetRow(
+              '配置来源',
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(v.game.hasCustomConfig ? '游戏自定义配置' : '使用全局配置'),
+                  ),
+                  if (v.game.hasCustomConfig && widget.hasMod)
+                    TextButton(
+                      onPressed: canEdit ? _useGlobalConfig : null,
+                      child: const Text('恢复全局配置'),
+                    ),
+                ],
+              ),
+            ),
             const SizedBox(height: 8),
             _DirectDriverSettings(
               config: config!,
@@ -1287,10 +1802,11 @@ class _GameSettingsState extends State<GameSettings> {
             v.game.source.kind == GameSourceKind.manual &&
             error.toString().contains('目标 DLL 不是已知 DLSSG 文件');
         if (!isManualConflict) rethrow;
+        if (!c.mounted) return;
         final accepted = await dialog(
           c,
           '覆盖未知 DLL？',
-          '将保存原始 DLL 的单一最新备份，再安装 Mod。',
+          '将保存原始 DLL 的单一最新备份，再安装驱动程序。',
         );
         if (!mounted) return;
         if (accepted) {
@@ -1309,14 +1825,16 @@ class _GameControlHeader extends StatelessWidget {
   const _GameControlHeader({
     required this.game,
     required this.status,
-    required this.onChooseExe,
+    required this.onRun,
+    required this.running,
     required this.proxy,
     required this.onProxyChanged,
     required this.action,
   });
   final GameEntry game;
   final ModStatus status;
-  final VoidCallback onChooseExe;
+  final VoidCallback? onRun;
+  final bool running;
   final String proxy;
   final ValueChanged<String?>? onProxyChanged;
   final Widget action;
@@ -1343,7 +1861,7 @@ class _GameControlHeader extends StatelessWidget {
                     game.name,
                     style: const TextStyle(
                       fontSize: 23,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: _uiEmphasisWeight,
                     ),
                   ),
                   Text(
@@ -1356,11 +1874,12 @@ class _GameControlHeader extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 12),
-            TextButton.icon(
-              style: _inlineActionButtonStyle,
-              onPressed: onChooseExe,
-              icon: const Icon(Icons.folder_open),
-              label: const Text('指定 EXE'),
+            TextButton(
+              style: running
+                  ? _runningActionButtonStyle
+                  : _inlineActionButtonStyle,
+              onPressed: onRun,
+              child: Text(running ? '运行中' : '启动游戏'),
             ),
           ],
         ),
@@ -1370,28 +1889,16 @@ class _GameControlHeader extends StatelessWidget {
             Icon(
               status.kind == ModStateKind.applied
                   ? Icons.check_circle
-                  : status.kind == ModStateKind.outdated
-                  ? Icons.system_update_alt
-                  : status.kind == ModStateKind.broken
-                  ? Icons.error_outline
                   : Icons.info_outline,
               color: status.kind == ModStateKind.applied
                   ? const Color(0xff9dcc3a)
-                  : status.kind == ModStateKind.outdated
-                  ? Colors.amberAccent
-                  : status.kind == ModStateKind.broken
-                  ? Colors.orangeAccent
                   : Colors.white54,
             ),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
                 status.kind == ModStateKind.applied
-                    ? '驱动已安装 · ${status.version ?? '已知版本'}'
-                    : status.kind == ModStateKind.outdated
-                    ? '驱动需要更新 · ${status.detail ?? '检测到上游历史 DLL'}'
-                    : status.kind == ModStateKind.broken
-                    ? '安装异常 · ${status.detail ?? '请重新安装'}'
+                    ? '驱动已安装 · ${status.version ?? '未知版本'}'
                     : '驱动尚未安装',
               ),
             ),
@@ -1402,17 +1909,32 @@ class _GameControlHeader extends StatelessWidget {
         const SizedBox(height: 8),
         SetRow(
           '代理 DLL',
-          DropdownButton<String>(
-            value: proxy,
-            isExpanded: true,
-            items: proxies
-                .map((x) => DropdownMenuItem(value: x, child: Text(x)))
-                .toList(),
-            onChanged: onProxyChanged,
+          MouseRegion(
+            cursor: onProxyChanged == null
+                ? SystemMouseCursors.basic
+                : SystemMouseCursors.click,
+            child: DropdownButton<String>(
+              value: proxy,
+              isExpanded: true,
+              items: proxies
+                  .map((x) => DropdownMenuItem(value: x, child: Text(x)))
+                  .toList(),
+              onChanged: onProxyChanged,
+            ),
           ),
         ),
       ],
     ),
+  );
+}
+
+class _ApplicationSettingsTitle extends StatelessWidget {
+  const _ApplicationSettingsTitle();
+
+  @override
+  Widget build(BuildContext c) => const Text(
+    '应用程序设置',
+    style: TextStyle(fontSize: 19, fontWeight: _uiEmphasisWeight),
   );
 }
 
@@ -1425,7 +1947,7 @@ class _DriverSettingsTitle extends StatelessWidget {
       Expanded(
         child: Text(
           '驱动程序设置',
-          style: TextStyle(fontSize: 19, fontWeight: FontWeight.w600),
+          style: TextStyle(fontSize: 19, fontWeight: _uiEmphasisWeight),
         ),
       ),
       Text('修改后自动保存', style: TextStyle(color: Colors.white54)),
@@ -1452,7 +1974,7 @@ class _DriverSettingsDisabled extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('配置功能已禁用', style: TextStyle(fontWeight: FontWeight.w600)),
+              Text('配置功能已禁用', style: TextStyle(fontWeight: _uiEmphasisWeight)),
               SizedBox(height: 3),
               Text(
                 '请先安装驱动程序；安装后将读取 dlssg_sm86.ini。',
@@ -1476,32 +1998,8 @@ class _DirectDriverSettings extends StatelessWidget {
   final bool enabled;
   final ValueChanged<ConfigProfile> onChanged;
 
-  ConfigProfile _copy({
-    bool? router,
-    bool? kernelImage,
-    bool? hardwareBilinear,
-    int? maxGeneratedFrames,
-    int? loggingLevel,
-    AdvancedOverrides? advanced,
-  }) => ConfigProfile(
-    name: config.name,
-    router: router ?? config.router,
-    kernelImage: kernelImage ?? config.kernelImage,
-    hardwareBilinear: hardwareBilinear ?? config.hardwareBilinear,
-    maxGeneratedFrames: maxGeneratedFrames ?? config.maxGeneratedFrames,
-    loggingLevel: loggingLevel ?? config.loggingLevel,
-    advanced: advanced ?? config.advanced,
-  );
-
   @override
   Widget build(BuildContext c) {
-    final advanced = config.advanced;
-    AdvancedOverrides editAdvanced({bool? extra, bool? debug, bool? enabled}) =>
-        AdvancedOverrides(
-          loggingExtra: extra == true ? true : null,
-          debug: debug == true ? true : null,
-          enabled: enabled == true ? true : null,
-        );
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
       decoration: BoxDecoration(
@@ -1510,140 +2008,220 @@ class _DirectDriverSettings extends StatelessWidget {
       ),
       child: Column(
         children: [
-          SetRow(
-            'Router',
-            DropdownButton<String>(
-              value: config.router ? 'SM86' : 'SM75',
-              isExpanded: true,
-              items: const [
-                DropdownMenuItem(value: 'SM86', child: Text('SM86')),
-                DropdownMenuItem(value: 'SM75', child: Text('SM75')),
-              ],
-              onChanged: enabled
-                  ? (x) => onChanged(_copy(router: x == 'SM86'))
-                  : null,
-            ),
-          ),
-          SetRow(
-            'KernelImage',
-            DropdownButton<String>(
-              value: config.kernelImage ? 'PTX' : 'Auto',
-              isExpanded: true,
-              items: const [
-                DropdownMenuItem(value: 'PTX', child: Text('PTX')),
-                DropdownMenuItem(value: 'Auto', child: Text('Auto')),
-              ],
-              onChanged: enabled
-                  ? (x) => onChanged(_copy(kernelImage: x == 'PTX'))
-                  : null,
-            ),
-          ),
-          BoolRow(
-            'HardwareBilinear',
-            config.hardwareBilinear,
-            enabled ? (x) => onChanged(_copy(hardwareBilinear: x)) : (_) {},
-            '1 · 近似',
-            '0 · 精确',
-            enabled: enabled,
-          ),
-          SetRow(
-            'MaxGeneratedFrames',
-            DropdownButton<int>(
-              value: config.maxGeneratedFrames,
-              isExpanded: true,
-              items: [1, 2, 3]
-                  .map((x) => DropdownMenuItem(value: x, child: Text('$x')))
-                  .toList(),
-              onChanged: enabled
-                  ? (x) => onChanged(_copy(maxGeneratedFrames: x))
-                  : null,
-            ),
-          ),
-          SetRow(
-            'Logging.Level',
-            DropdownButton<int>(
-              value: config.loggingLevel,
-              isExpanded: true,
-              items: [0, 1, 2, 3]
-                  .map((x) => DropdownMenuItem(value: x, child: Text('$x')))
-                  .toList(),
-              onChanged: enabled
-                  ? (x) => onChanged(_copy(loggingLevel: x))
-                  : null,
-            ),
-          ),
-          const Divider(height: 28),
-          _DirectCheckbox(
-            label: '额外日志',
-            value: advanced.loggingExtra == true,
-            enabled: enabled,
-            changed: (x) => onChanged(
-              _copy(
-                advanced: editAdvanced(
-                  extra: x,
-                  debug: advanced.debug,
-                  enabled: advanced.enabled,
+          for (final section in config.sections) ...[
+            _IniSectionHeader(section.name),
+            for (final setting in section.settings)
+              SetRow(
+                setting.key,
+                TextFormField(
+                  key: ValueKey('${section.name}/${setting.key}'),
+                  initialValue: setting.value,
+                  enabled: enabled,
+                  onFieldSubmitted: (value) => onChanged(
+                    config.withValue(section.name, setting.key, value),
+                  ),
+                  decoration: const InputDecoration(hintText: '按 Enter 保存'),
                 ),
               ),
-            ),
-          ),
-          _DirectCheckbox(
-            label: '调试标记',
-            value: advanced.debug == true,
-            enabled: enabled,
-            changed: (x) => onChanged(
-              _copy(
-                advanced: editAdvanced(
-                  extra: advanced.loggingExtra,
-                  debug: x,
-                  enabled: advanced.enabled,
-                ),
-              ),
-            ),
-          ),
-          _DirectCheckbox(
-            label: 'General.Enabled',
-            value: advanced.enabled == true,
-            enabled: enabled,
-            changed: (x) => onChanged(
-              _copy(
-                advanced: editAdvanced(
-                  extra: advanced.loggingExtra,
-                  debug: advanced.debug,
-                  enabled: x,
-                ),
-              ),
-            ),
-          ),
+          ],
         ],
       ),
     );
   }
 }
 
-class _DirectCheckbox extends StatelessWidget {
-  const _DirectCheckbox({
-    required this.label,
-    required this.value,
-    required this.enabled,
-    required this.changed,
-  });
-  final String label;
-  final bool value, enabled;
-  final ValueChanged<bool> changed;
+class _IniSectionHeader extends StatelessWidget {
+  const _IniSectionHeader(this.section);
+
+  final String section;
 
   @override
-  Widget build(BuildContext c) => CheckboxListTile(
-    contentPadding: EdgeInsets.zero,
-    value: value,
-    onChanged: enabled ? (x) => changed(x ?? false) : null,
-    title: Text(label),
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(top: 14, bottom: 2),
+    child: Align(
+      alignment: Alignment.centerLeft,
+      child: Text(
+        '[$section]',
+        style: const TextStyle(
+          color: _nvidiaGreen,
+          fontWeight: _uiEmphasisWeight,
+        ),
+      ),
+    ),
   );
 }
 
-/// A compact artwork treatment shared by the settings game list and header.
-/// Steam's public header artwork is used as an identifiable game icon; other
-/// libraries retain a clear local-game fallback.
+class SteamArtwork extends StatefulWidget {
+  const SteamArtwork({
+    required this.appId,
+    required this.fallback,
+    this.fit = BoxFit.cover,
+    super.key,
+  });
+
+  final int appId;
+  final Widget fallback;
+  final BoxFit fit;
+
+  @override
+  State<SteamArtwork> createState() => _SteamArtworkState();
+}
+
+class _SteamArtworkState extends State<SteamArtwork> {
+  late List<_ArtworkSource> _sources;
+  var _sourceIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _resetSources();
+  }
+
+  @override
+  void didUpdateWidget(covariant SteamArtwork oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.appId != widget.appId) {
+      _resetSources();
+    }
+  }
+
+  void _resetSources() {
+    _sources = _artworkSources(widget.appId);
+    _sourceIndex = 0;
+    if (!_sources.any((source) => source.local)) {
+      _loadStoreArtwork(widget.appId);
+    }
+  }
+
+  Future<void> _loadStoreArtwork(int appId) async {
+    final url = await steamArtworkUrl(appId);
+    if (!mounted || widget.appId != appId || url == null) return;
+    final existing = _sources.indexWhere((source) => source.value == url);
+    if (existing >= 0) return;
+    setState(() {
+      _sources.add(_ArtworkSource.network(url));
+    });
+  }
+
+  void _tryNextSource() {
+    if (_sourceIndex >= _sources.length - 1) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _sourceIndex < _sources.length - 1) {
+        setState(() => _sourceIndex++);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_sources.isEmpty) return widget.fallback;
+    final source = _sources[_sourceIndex];
+    return source.local
+        ? Image.file(
+            File(source.value),
+            fit: widget.fit,
+            errorBuilder: (_, _, _) {
+              _tryNextSource();
+              return widget.fallback;
+            },
+          )
+        : Image.network(
+            source.value,
+            fit: widget.fit,
+            errorBuilder: (_, _, _) {
+              _tryNextSource();
+              return widget.fallback;
+            },
+          );
+  }
+}
+
+class _ArtworkSource {
+  const _ArtworkSource.local(this.value) : local = true;
+  const _ArtworkSource.network(this.value) : local = false;
+
+  final String value;
+  final bool local;
+}
+
+List<_ArtworkSource> _artworkSources(int appId) {
+  final sources = <_ArtworkSource>[];
+  final seenLocalPaths = <String>{};
+
+  void addLocal(String path) {
+    if (File(path).existsSync() && seenLocalPaths.add(p.normalize(path))) {
+      sources.add(_ArtworkSource.local(path));
+    }
+  }
+
+  for (final steamPath in _steamArtworkSteamPaths()) {
+    final cachePath = p.join(steamPath, 'appcache', 'librarycache');
+
+    final appCache = Directory(p.join(cachePath, '$appId'));
+    for (final name in [
+      'header_schinese.jpg',
+      'header_schinese.png',
+      'header.jpg',
+      'header.png',
+      'library_header.jpg',
+      'library_header.png',
+    ]) {
+      addLocal(p.join(appCache.path, name));
+    }
+    if (appCache.existsSync()) {
+      try {
+        for (final item in appCache.listSync()) {
+          if (item is! Directory) continue;
+          for (final name in ['library_header.jpg', 'library_header.png']) {
+            addLocal(p.join(item.path, name));
+          }
+        }
+      } on FileSystemException {
+        // Steam may update this cache concurrently.
+      }
+    }
+    for (final name in [
+      '${appId}_header.jpg',
+      '${appId}_header.png',
+      '${appId}_library_600x900.jpg',
+      '${appId}_library_600x900.png',
+      '$appId/header.jpg',
+    ]) {
+      addLocal(p.join(cachePath, name));
+    }
+  }
+  for (final url in steamArtworkUrls(appId)) {
+    sources.add(_ArtworkSource.network(url));
+  }
+  return sources;
+}
+
+List<String>? _steamArtworkSteamPathsCache;
+
+List<String> _steamArtworkSteamPaths() {
+  return _steamArtworkSteamPathsCache ??= () {
+    final roots = <String>[];
+    for (final path in [
+      SteamScanner.readSteamPathFromRegistry(),
+      r'C:\Program Files (x86)\Steam',
+      r'C:\Program Files\Steam',
+    ]) {
+      if (path == null || !Directory(path).existsSync()) continue;
+      if (!roots.any((root) => p.equals(root, path))) roots.add(path);
+    }
+    return roots;
+  }();
+}
+
+List<String> steamArtworkUrls(int appId) => [
+  'https://cdn.cloudflare.steamstatic.com/steam/apps/$appId/header.jpg',
+  'https://cdn.akamai.steamstatic.com/steam/apps/$appId/header.jpg',
+  'https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/$appId/header.jpg',
+  'https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/$appId/header.jpg',
+  'https://cdn.cloudflare.steamstatic.com/steam/apps/$appId/capsule_231x87.jpg',
+  'https://cdn.akamai.steamstatic.com/steam/apps/$appId/capsule_231x87.jpg',
+];
+
 class GameIcon extends StatelessWidget {
   const GameIcon(this.game, {this.size = 40, super.key});
   final GameEntry game;
@@ -1662,10 +2240,10 @@ class GameIcon extends StatelessWidget {
                 decoration: BoxDecoration(color: Color(0xff283129)),
                 child: Icon(Icons.sports_esports, color: Color(0xff9dcc3a)),
               )
-            : Image.network(
-                'https://cdn.akamai.steamstatic.com/steam/apps/$appId/header.jpg',
+            : SteamArtwork(
+                appId: appId,
                 fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => const DecoratedBox(
+                fallback: const DecoratedBox(
                   decoration: BoxDecoration(color: Color(0xff283129)),
                   child: Icon(Icons.sports_esports, color: Color(0xff9dcc3a)),
                 ),
@@ -1675,75 +2253,35 @@ class GameIcon extends StatelessWidget {
   }
 }
 
-class Status extends StatelessWidget {
-  const Status(this.view, {super.key});
-  final GameView view;
-  @override
-  Widget build(BuildContext c) => Container(
-    padding: const EdgeInsets.all(15),
-    decoration: BoxDecoration(
-      color: const Color(0xff202628),
-      borderRadius: BorderRadius.circular(8),
-    ),
-    child: Row(
-      children: [
-        Icon(
-          view.mod.kind == ModStateKind.applied
-              ? Icons.verified
-              : view.mod.kind == ModStateKind.outdated
-              ? Icons.system_update_alt
-              : Icons.info_outline,
-          color: view.mod.kind == ModStateKind.applied
-              ? const Color(0xff9dcc3a)
-              : view.mod.kind == ModStateKind.outdated
-              ? Colors.amberAccent
-              : Colors.white54,
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(modLabel(view.mod)),
-              Text(
-                view.game.exePath ?? '未选择渲染 EXE',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Colors.white60, fontSize: 12),
-              ),
-            ],
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
 class SetRow extends StatelessWidget {
   const SetRow(this.label, this.value, {super.key});
   final String label;
   final Widget value;
+
+  static const _labelWidth = 190.0;
+  static const _columnGap = 24.0;
+
   @override
   Widget build(BuildContext c) => Padding(
     padding: const EdgeInsets.symmetric(vertical: 9),
     child: Row(
       children: [
         SizedBox(
-          width: 115,
-          child: Text(label, style: const TextStyle(color: Colors.white60)),
+          width: _labelWidth,
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Colors.white60),
+          ),
         ),
+        const SizedBox(width: _columnGap),
         Expanded(child: value),
       ],
     ),
   );
 }
 
-String configLabel(ConfigStatus x) => switch (x.kind) {
-  ConfigStateKind.defaultConfig => '包内默认配置',
-  ConfigStateKind.global => '全局配置 · ${x.profile}',
-  ConfigStateKind.dedicated => '专属配置 · ${x.profile}',
-  ConfigStateKind.externallyModified => '配置已外部修改 · ${x.profile}',
-};
 Future<bool> dialog(BuildContext c, String t, String b) async =>
     (await showDialog<bool>(
       context: c,
@@ -1765,163 +2303,47 @@ Future<bool> dialog(BuildContext c, String t, String b) async =>
     false;
 
 class GlobalSettings extends StatefulWidget {
-  const GlobalSettings(
-    this.profiles,
-    this.hasMod,
-    this.manager,
-    this.act, {
-    super.key,
-  });
-  final List<ConfigProfile> profiles;
+  const GlobalSettings(this.hasMod, this.manager, this.act, {super.key});
   final bool hasMod;
   final ModManager manager;
-  final Future<void> Function(Future<void> Function(), [String?]) act;
+  final Future<void> Function(Future<void> Function()) act;
   @override
   State<GlobalSettings> createState() => _GlobalSettingsState();
 }
 
 class _GlobalSettingsState extends State<GlobalSettings> {
-  ConfigProfile? edit;
-  @override
-  Widget build(BuildContext c) {
-    if (edit != null)
-      return Editor(
-        edit!,
-        widget.manager,
-        widget.act,
-        () => setState(() => edit = null),
-      );
-    return Card(
-      child: ListView(
-        padding: const EdgeInsets.all(25),
-        children: [
-          Row(
-            children: [
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '全局设置',
-                      style: TextStyle(
-                        fontSize: 23,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    SizedBox(height: 4),
-                    Text(
-                      '默认 INI 只读；下载 Mod 后才能定义自定义配置。',
-                      style: TextStyle(color: Colors.white60),
-                    ),
-                  ],
-                ),
-              ),
-              FilledButton.icon(
-                onPressed: widget.hasMod
-                    ? () => setState(
-                        () => edit = const ConfigProfile(
-                          name: '新配置档',
-                          router: true,
-                          kernelImage: true,
-                          hardwareBilinear: false,
-                          maxGeneratedFrames: 3,
-                          loggingLevel: 1,
-                        ),
-                      )
-                    : null,
-                icon: const Icon(Icons.add),
-                label: const Text('新建配置'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          ProfileTile(
-            '包内默认 INI',
-            '未选择自定义全局配置时使用',
-            widget.manager.db.globalProfile == null,
-            widget.hasMod
-                ? () => widget.act(() => widget.manager.setGlobalProfile(null))
-                : null,
-          ),
-          ...widget.profiles.map(
-            (x) => ProfileTile(
-              x.name,
-              widget.manager.db.globalProfile == x.name ? '当前全局配置' : '自定义配置',
-              widget.manager.db.globalProfile == x.name,
-              widget.hasMod ? () => setState(() => edit = x) : null,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
+  ConfigProfile? config;
+  bool loading = false;
 
-class ProfileTile extends StatelessWidget {
-  const ProfileTile(this.name, this.note, this.active, this.tap, {super.key});
-  final String name, note;
-  final bool active;
-  final VoidCallback? tap;
-  @override
-  Widget build(BuildContext c) => Card(
-    color: active ? const Color(0xff293c1b) : null,
-    child: ListTile(
-      onTap: tap,
-      title: Text(name),
-      subtitle: Text(note),
-      trailing: active
-          ? const Icon(Icons.check_circle, color: Color(0xff9dcc3a))
-          : const Icon(Icons.chevron_right),
-    ),
-  );
-}
-
-class Editor extends StatefulWidget {
-  const Editor(this.initial, this.manager, this.act, this.done, {super.key});
-  final ConfigProfile initial;
-  final ModManager manager;
-  final Future<void> Function(Future<void> Function(), [String?]) act;
-  final VoidCallback done;
-  @override
-  State<Editor> createState() => _EditorState();
-}
-
-class _EditorState extends State<Editor> {
-  late TextEditingController name;
-  late bool router, kernel, bilinear, extra, debug, enabled;
-  late int frames, level;
   @override
   void initState() {
     super.initState();
-    final x = widget.initial;
-    name = TextEditingController(text: x.name);
-    router = x.router;
-    kernel = x.kernelImage;
-    bilinear = x.hardwareBilinear;
-    frames = x.maxGeneratedFrames;
-    level = x.loggingLevel;
-    extra = x.advanced.loggingExtra ?? false;
-    debug = x.advanced.debug ?? false;
-    enabled = x.advanced.enabled ?? false;
+    _load();
   }
 
-  ConfigProfile get value => ConfigProfile(
-    name: name.text,
-    router: router,
-    kernelImage: kernel,
-    hardwareBilinear: bilinear,
-    maxGeneratedFrames: frames,
-    loggingLevel: level,
-    advanced: AdvancedOverrides(
-      loggingExtra: extra ? true : null,
-      debug: debug ? true : null,
-      enabled: enabled ? true : null,
-    ),
-  );
   @override
-  void dispose() {
-    name.dispose();
-    super.dispose();
+  void didUpdateWidget(GlobalSettings old) {
+    super.didUpdateWidget(old);
+    if (old.hasMod != widget.hasMod) _load();
+  }
+
+  Future<void> _load() async {
+    if (!widget.hasMod) {
+      if (mounted) setState(() => config = null);
+      return;
+    }
+    setState(() => loading = true);
+    try {
+      final loaded = await widget.manager.loadGlobalConfig();
+      if (mounted) setState(() => config = loaded);
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> _save(ConfigProfile next) async {
+    setState(() => config = next);
+    await widget.act(() => widget.manager.saveGlobalConfig(next));
   }
 
   @override
@@ -1929,140 +2351,30 @@ class _EditorState extends State<Editor> {
     child: ListView(
       padding: const EdgeInsets.all(25),
       children: [
-        Row(
-          children: [
-            const Expanded(
-              child: Text(
-                '编辑配置档',
-                style: TextStyle(fontSize: 23, fontWeight: FontWeight.w600),
-              ),
-            ),
-            OutlinedButton(onPressed: widget.done, child: const Text('返回')),
-          ],
-        ),
-        const SizedBox(height: 15),
-        TextField(
-          controller: name,
-          decoration: const InputDecoration(labelText: '配置名称'),
-        ),
-        BoolRow(
-          'Router',
-          router,
-          (x) => setState(() => router = x),
-          'SM86',
-          'SM75',
-        ),
-        BoolRow(
-          'KernelImage',
-          kernel,
-          (x) => setState(() => kernel = x),
-          'PTX',
-          'Auto',
-        ),
-        BoolRow(
-          'HardwareBilinear',
-          bilinear,
-          (x) => setState(() => bilinear = x),
-          '1 · 近似',
-          '0 · 精确',
-        ),
-        SetRow(
-          'MaxGeneratedFrames',
-          DropdownButton<int>(
-            value: frames,
-            isExpanded: true,
-            items: [1, 2, 3]
-                .map((x) => DropdownMenuItem(value: x, child: Text('$x')))
-                .toList(),
-            onChanged: (x) => setState(() => frames = x!),
-          ),
-        ),
-        SetRow(
-          'Logging.Level',
-          DropdownButton<int>(
-            value: level,
-            isExpanded: true,
-            items: [0, 1, 2, 3]
-                .map((x) => DropdownMenuItem(value: x, child: Text('$x')))
-                .toList(),
-            onChanged: (x) => setState(() => level = x!),
-          ),
-        ),
-        const Divider(height: 35),
         const Text(
-          '高级选项',
-          style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+          '全局配置',
+          style: TextStyle(fontSize: 23, fontWeight: _uiEmphasisWeight),
         ),
-        const Text('未选择的高级项不会写入 INI。', style: TextStyle(color: Colors.white54)),
-        CheckboxListTile(
-          value: extra,
-          onChanged: (x) => setState(() => extra = x!),
-          title: const Text('额外日志'),
+        const SizedBox(height: 4),
+        const Text(
+          '安装游戏时默认使用此配置。修改会同步到仍使用全局配置的已安装游戏。',
+          style: TextStyle(color: Colors.white60),
         ),
-        CheckboxListTile(
-          value: debug,
-          onChanged: (x) => setState(() => debug = x!),
-          title: const Text('调试标记'),
-        ),
-        CheckboxListTile(
-          value: enabled,
-          onChanged: (x) => setState(() => enabled = x!),
-          title: const Text('General.Enabled'),
-        ),
-        Wrap(
-          spacing: 10,
-          children: [
-            FilledButton(
-              onPressed: () => widget.act(() async {
-                await widget.manager.saveProfile(value);
-                await widget.manager.setGlobalProfile(value.name);
-                widget.done();
-              }),
-              child: const Text('保存并设为全局'),
-            ),
-            OutlinedButton(
-              onPressed: () => widget.act(() async {
-                await widget.manager.saveProfile(value);
-                widget.done();
-              }),
-              child: const Text('仅保存'),
-            ),
-            if (widget.initial.name != '新配置档')
-              OutlinedButton(
-                onPressed: () => widget.act(() async {
-                  await widget.manager.deleteProfile(widget.initial.name);
-                  widget.done();
-                }),
-                child: const Text('删除'),
-              ),
-          ],
-        ),
+        const SizedBox(height: 22),
+        if (!widget.hasMod)
+          const _DriverSettingsDisabled()
+        else if (loading || config == null)
+          const Padding(
+            padding: EdgeInsets.all(24),
+            child: Center(child: CircularProgressIndicator()),
+          )
+        else
+          _DirectDriverSettings(
+            config: config!,
+            enabled: true,
+            onChanged: _save,
+          ),
       ],
-    ),
-  );
-}
-
-class BoolRow extends StatelessWidget {
-  const BoolRow(
-    this.label,
-    this.value,
-    this.changed,
-    this.yes,
-    this.no, {
-    this.enabled = true,
-    super.key,
-  });
-  final String label, yes, no;
-  final bool value, enabled;
-  final ValueChanged<bool> changed;
-  @override
-  Widget build(BuildContext c) => SetRow(
-    label,
-    SwitchListTile(
-      contentPadding: EdgeInsets.zero,
-      value: value,
-      onChanged: enabled ? changed : null,
-      title: Text(value ? yes : no),
     ),
   );
 }

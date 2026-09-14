@@ -10,6 +10,9 @@ $zip = Join-Path $releaseRoot 'dlssg-for-sm86-manager-portable.zip'
 
 Push-Location $projectRoot
 try {
+  if (Test-Path -LiteralPath $buildOutput -PathType Container) {
+    Remove-Item -LiteralPath $buildOutput -Recurse -Force
+  }
   flutter pub get
   flutter test
   flutter build windows --release

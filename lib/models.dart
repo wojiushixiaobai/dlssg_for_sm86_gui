@@ -96,9 +96,8 @@ class GameEntry {
     required this.source,
     this.exePath,
     this.selectedProxy,
-    this.configProfile,
     this.appliedProfileSha256,
-    this.hasDirectConfig = false,
+    this.hasCustomConfig = false,
     this.install,
     List<BackupRecord>? backups,
     this.createdAt,
@@ -107,8 +106,8 @@ class GameEntry {
   final String id;
   String name;
   GameSource source;
-  String? exePath, selectedProxy, configProfile, appliedProfileSha256;
-  bool hasDirectConfig;
+  String? exePath, selectedProxy, appliedProfileSha256;
+  bool hasCustomConfig;
   ManagedInstall? install;
   List<BackupRecord> backups;
   DateTime? createdAt, lastPlayedAt;
@@ -120,14 +119,19 @@ class GameEntry {
       source: GameSource.fromJson(map['source']),
       exePath: _string(map, 'exePath', 'exe_path'),
       selectedProxy: _string(map, 'selectedProxy', 'selected_proxy'),
-      configProfile: _string(map, 'configProfile', 'config_profile'),
       appliedProfileSha256: _string(
         map,
         'appliedProfileSha256',
         'applied_profile_sha256',
       ),
-      hasDirectConfig:
-          (map['hasDirectConfig'] ?? map['has_direct_config']) == true,
+      // `hasDirectConfig` was the old name for a game-specific override.
+      hasCustomConfig:
+          (map['hasCustomConfig'] ??
+              map['has_custom_config'] ??
+              map['hasDirectConfig'] ??
+              map['has_direct_config'] ??
+              ((map['configProfile'] ?? map['config_profile']) != null)) ==
+          true,
       install: map['install'] == null
           ? null
           : ManagedInstall.fromJson(map['install']),
@@ -144,9 +148,8 @@ class GameEntry {
     'source': source.toJson(),
     'exePath': exePath,
     'selectedProxy': selectedProxy,
-    'configProfile': configProfile,
     'appliedProfileSha256': appliedProfileSha256,
-    'hasDirectConfig': hasDirectConfig,
+    'has_custom_config': hasCustomConfig,
     'install': install?.toJson(),
     'backups': backups.map((x) => x.toJson()).toList(),
     'createdAt': createdAt?.toIso8601String(),
@@ -154,144 +157,85 @@ class GameEntry {
   };
 }
 
-class AdvancedOverrides {
-  const AdvancedOverrides({this.loggingExtra, this.debug, this.enabled});
-  final bool? loggingExtra, debug, enabled;
+class IniSetting {
+  const IniSetting({required this.key, required this.value});
+
+  final String key, value;
 }
 
-class ConfigProfile {
-  const ConfigProfile({
-    required this.name,
-    required this.router,
-    required this.kernelImage,
-    required this.hardwareBilinear,
-    required this.maxGeneratedFrames,
-    required this.loggingLevel,
-    this.advanced = const AdvancedOverrides(),
-  });
+class IniSection {
+  const IniSection({required this.name, required this.settings});
+
   final String name;
-  final bool router, kernelImage, hardwareBilinear;
-  final int maxGeneratedFrames, loggingLevel;
-  final AdvancedOverrides advanced;
+  final List<IniSetting> settings;
+}
+
+/// A generic representation of the driver INI.  It deliberately does not
+/// prescribe known sections or keys, so newer driver packages need no app
+/// update merely to expose their configuration.
+class ConfigProfile {
+  const ConfigProfile({required this.name, required this.sections});
+
+  final String name;
+  final List<IniSection> sections;
+
+  String? value(String section, String key) {
+    for (final item in sections) {
+      if (item.name.toLowerCase() != section.toLowerCase()) continue;
+      for (final setting in item.settings) {
+        if (setting.key.toLowerCase() == key.toLowerCase()) {
+          return setting.value;
+        }
+      }
+    }
+    return null;
+  }
+
+  ConfigProfile withValue(String section, String key, String value) =>
+      ConfigProfile(
+        name: name,
+        sections: [
+          for (final item in sections)
+            if (item.name.toLowerCase() == section.toLowerCase())
+              IniSection(
+                name: item.name,
+                settings: [
+                  for (final setting in item.settings)
+                    setting.key.toLowerCase() == key.toLowerCase()
+                        ? IniSetting(key: setting.key, value: value)
+                        : setting,
+                ],
+              )
+            else
+              item,
+        ],
+      );
+
   String toIni() {
-    final lines = <String>[
-      '[Compatibility]',
-      'Router=${router ? 'SM86' : 'SM75'}',
-      'KernelImage=${kernelImage ? 'PTX' : 'Auto'}',
-      'HardwareBilinear=${hardwareBilinear ? 1 : 0}',
-      '',
-      '[FrameGeneration]',
-      'MaxGeneratedFrames=$maxGeneratedFrames',
-      '',
-      '[Logging]',
-      'Level=$loggingLevel',
-    ];
-    if (advanced.loggingExtra != null)
-      lines.add('Extra=${advanced.loggingExtra}');
-    if (advanced.debug != null || advanced.enabled != null) {
-      lines.addAll(['', '[General]']);
-      if (advanced.enabled != null) lines.add('Enabled=${advanced.enabled}');
-      if (advanced.debug != null) lines.add('Debug=${advanced.debug}');
+    final lines = <String>[];
+    for (final section in sections) {
+      if (lines.isNotEmpty) lines.add('');
+      lines.add('[${section.name}]');
+      lines.addAll(
+        section.settings.map((setting) => '${setting.key}=${setting.value}'),
+      );
     }
     return '${lines.join('\n')}\n';
   }
 }
 
-class ModHashCatalog {
-  ModHashCatalog([
-    Map<String, String>? hashes,
-    Map<String, String>? latestHashes,
-    this.sourceHeadCommit,
-    Map<String, String>? latestFileHashes,
-  ]) : hashes = hashes ?? {},
-       latestHashes = latestHashes ?? {},
-       latestFileHashes = latestFileHashes ?? {};
-
-  /// All recognized upstream DLLs, including retired versions.
-  final Map<String, String> hashes;
-
-  /// DLL hashes present in the upstream repository's current HEAD commit.
-  final Map<String, String> latestHashes;
-
-  /// Full SHA of upstream's `main` commit from which this catalog was built.
-  final String? sourceHeadCommit;
-
-  /// SHA-256 values keyed by their upstream repository path.
-  final Map<String, String> latestFileHashes;
-
-  bool contains(String hash) => hashes.containsKey(hash.toLowerCase());
-  bool isLatest(String hash) => latestHashes.containsKey(hash.toLowerCase());
-  bool isHistorical(String hash) => contains(hash) && !isLatest(hash);
-  String? latestFileHash(String path) => latestFileHashes[path];
-
-  factory ModHashCatalog.fromJson(Object? value) {
-    final root = _map(value);
-    Map<String, String> index(Object? section) {
-      final files = _map(section)['files'];
-      if (files is! List) return {};
-      return {
-        for (final raw in files)
-          if (_string(_map(raw), 'sha256') case final hash?)
-            hash.toLowerCase():
-                (_string(_map(raw), 'file_name', 'fileName') ??
-                _string(_map(raw), 'path') ??
-                ''),
-      };
-    }
-
-    final latest = index(root['latest']);
-    final historical = index(root['historical']);
-    final latestFileHashes = <String, String>{
-      for (final raw in (_map(root['latest'])['files'] as List? ?? const []))
-        if (_string(_map(raw), 'path') case final path?)
-          if (_string(_map(raw), 'sha256') case final hash?)
-            path: hash.toLowerCase(),
-    };
-    final flat = _map(root['hashes'])
-        .map((key, value) => MapEntry(key.toLowerCase(), value.toString()));
-    // Version 1 catalogs only had the flat index.  Treat them as known
-    // historical values instead of falsely declaring an old catalog current.
-    return ModHashCatalog(
-      {...flat, ...historical, ...latest},
-      latest,
-      _string(_map(root['source']), 'headCommit', 'head_commit') ??
-          _string(_map(root['latest']), 'commit'),
-      latestFileHashes,
-    );
-  }
-  Map<String, dynamic> toJson() => {
-    'hashes': hashes,
-    if (latestHashes.isNotEmpty)
-      'latest': {
-        'files': [
-          for (final entry in latestHashes.entries)
-            {
-              'sha256': entry.key,
-              'file_name': entry.value,
-              if (latestFileHashes.entries
-                  .any((file) => file.value == entry.key))
-                'path': latestFileHashes.entries
-                    .firstWhere((file) => file.value == entry.key)
-                    .key,
-            },
-        ],
-      },
-    if (sourceHeadCommit != null) 'source': {'head_commit': sourceHeadCommit},
-  };
-}
-
 class Database {
   Database({
     List<GameEntry>? games,
-    this.globalProfile,
-    ModHashCatalog? catalog,
     this.installedVersion,
+    this.legacyGlobalProfile,
     this.steamInitialScanCompleted = false,
-  }) : games = games ?? [],
-       catalog = catalog ?? ModHashCatalog();
+  }) : games = games ?? [];
   final List<GameEntry> games;
-  String? globalProfile, installedVersion;
-  ModHashCatalog catalog;
+  String? installedVersion;
+
+  /// One-time migration source for state files written before global.ini.
+  final String? legacyGlobalProfile;
   bool steamInitialScanCompleted;
   factory Database.fromJsonText(String text) {
     final m = _map(jsonDecode(text));
@@ -299,9 +243,8 @@ class Database {
       games: (m['games'] is List ? m['games'] as List : const [])
           .map(GameEntry.fromJson)
           .toList(),
-      globalProfile: _string(m, 'globalProfile', 'global_profile'),
-      catalog: ModHashCatalog.fromJson(m['catalog']),
       installedVersion: _string(m, 'installedVersion', 'installed_version'),
+      legacyGlobalProfile: _string(m, 'globalProfile', 'global_profile'),
       steamInitialScanCompleted:
           (m['steamInitialScanCompleted'] ??
               m['steam_initial_scan_completed']) ==
@@ -310,8 +253,6 @@ class Database {
   }
   String toJsonText() => const JsonEncoder.withIndent('  ').convert({
     'games': games.map((g) => g.toJson()).toList(),
-    'global_profile': globalProfile,
-    'catalog': catalog.toJson(),
     'installed_version': installedVersion,
     'steam_initial_scan_completed': steamInitialScanCompleted,
   });
@@ -319,26 +260,19 @@ class Database {
 
 enum TargetState { awaitingExe, ready, missing }
 
-enum ModStateKind { applied, outdated, notApplied, broken }
+enum ModStateKind { applied, notApplied }
 
 class ModStatus {
-  const ModStatus(this.kind, {this.version, this.proxy, this.detail});
+  const ModStatus(this.kind, {this.version, this.proxy});
   final ModStateKind kind;
-  final String? version, proxy, detail;
+  final String? version, proxy;
 }
 
-enum ConfigStateKind {
-  defaultConfig,
-  global,
-  dedicated,
-  direct,
-  externallyModified,
-}
+enum ConfigStateKind { global, custom, externallyModified }
 
 class ConfigStatus {
-  const ConfigStatus(this.kind, [this.profile]);
+  const ConfigStatus(this.kind);
   final ConfigStateKind kind;
-  final String? profile;
 }
 
 class GameView {

@@ -1,18 +1,26 @@
-/// A deliberately small Valve KeyValue parser. It accepts comments, quoted
-/// strings and nested braces used by libraryfolders, ACF and localconfig files.
 class VdfNode {
   VdfNode(this.values);
   final Map<String, Object> values;
-  String? string(String key) => values.entries
-      .where((e) => e.key.toLowerCase() == key.toLowerCase())
-      .map((e) => e.value is String ? e.value as String : null)
-      .whereType<String>()
-      .firstOrNull;
-  VdfNode? child(String key) => values.entries
-      .where((e) => e.key.toLowerCase() == key.toLowerCase())
-      .map((e) => e.value is VdfNode ? e.value as VdfNode : null)
-      .whereType<VdfNode>()
-      .firstOrNull;
+
+  String? string(String key) {
+    final normalizedKey = key.toLowerCase();
+    for (final entry in values.entries) {
+      if (entry.key.toLowerCase() == normalizedKey && entry.value is String) {
+        return entry.value as String;
+      }
+    }
+    return null;
+  }
+
+  VdfNode? child(String key) {
+    final normalizedKey = key.toLowerCase();
+    for (final entry in values.entries) {
+      if (entry.key.toLowerCase() == normalizedKey && entry.value is VdfNode) {
+        return entry.value as VdfNode;
+      }
+    }
+    return null;
+  }
 }
 
 class VdfParser {
@@ -36,10 +44,11 @@ class VdfParser {
       if (_tokens[_index] == '{') {
         _index++;
         values[key] = _readBlock(untilBrace: true);
-      } else if (_tokens[_index] != '}')
+      } else if (_tokens[_index] != '}') {
         values[key] = _tokens[_index++];
-      else if (untilBrace)
+      } else if (untilBrace) {
         break;
+      }
     }
     return VdfNode(values);
   }
@@ -50,7 +59,9 @@ class VdfParser {
     while (i < input.length) {
       final c = input[i];
       if (c == '/' && i + 1 < input.length && input[i + 1] == '/') {
-        while (i < input.length && input[i] != '\n') i++;
+        while (i < input.length && input[i] != '\n') {
+          i++;
+        }
         continue;
       }
       if (c.trim().isEmpty) {
@@ -70,8 +81,9 @@ class VdfParser {
             final n = input[++i];
             b.write(n == 'n' ? '\n' : n);
             i++;
-          } else
+          } else {
             b.write(input[i++]);
+          }
         }
         if (i < input.length) i++;
         out.add(b.toString());
@@ -79,16 +91,13 @@ class VdfParser {
       }
       final start = i;
       while (i < input.length &&
-          !input[i].trim().isEmpty &&
+          input[i].trim().isNotEmpty &&
           input[i] != '{' &&
-          input[i] != '}')
+          input[i] != '}') {
         i++;
+      }
       out.add(input.substring(start, i));
     }
     return out;
   }
-}
-
-extension FirstOrNull<T> on Iterable<T> {
-  T? get firstOrNull => isEmpty ? null : first;
 }

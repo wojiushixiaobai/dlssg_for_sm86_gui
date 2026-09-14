@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:archive/archive_io.dart';
 import 'package:crypto/crypto.dart';
@@ -16,30 +17,45 @@ const proxies = [
   'version.dll',
   'winmm.dll',
   'dinput8.dll',
-  'winhttp.dll',
   'dxgi.dll',
+  'd3d12.dll',
+  'dbghelp.dll',
 ];
 const defaultProxy = 'version.dll';
-const defaultIni =
-    '; Native configuration. Restart the game after changing this file.\n[Compatibility]\nRouter=SM86\nKernelImage=PTX\nHardwareBilinear=0\n\n[FrameGeneration]\nMaxGeneratedFrames=3\n\n[Logging]\nLevel=1\n';
-const catalogUrl =
-    'https://raw.githubusercontent.com/wojiushixiaobai/dlssg_for_sm86_gui/main/mod-hash-catalog.json';
-const releaseDownloadBase =
-    'https://github.com/wojiushixiaobai/dlssg_for_sm86_gui/releases/download';
+const latestReleaseUrl =
+    'https://api.github.com/repos/sdli1995/dlssg_for_sm86/releases/latest';
 const modArchiveName = 'dlssg_for_sm86.tar.gz';
+const appStorageDirectoryName = 'dlssg_for_sm86_gui';
 
 class ManagerInfo {
   const ManagerInfo({
     required this.dataDirectory,
     required this.installedVersion,
-    required this.knownHashes,
-    required this.globalProfile,
     required this.modAvailable,
   });
   final String dataDirectory;
-  final String? installedVersion, globalProfile;
-  final int knownHashes;
+  final String? installedVersion;
   final bool modAvailable;
+}
+
+enum DownloadPhase { downloading, verifying }
+
+/// A snapshot emitted while the upstream driver archive is being prepared.
+/// [totalBytes] is absent when the server does not send a Content-Length.
+class DownloadProgress {
+  const DownloadProgress({
+    required this.phase,
+    required this.downloadedBytes,
+    this.totalBytes,
+  });
+
+  final DownloadPhase phase;
+  final int downloadedBytes;
+  final int? totalBytes;
+
+  double? get fraction => totalBytes == null || totalBytes == 0
+      ? null
+      : (downloadedBytes / totalBytes!).clamp(0, 1).toDouble();
 }
 
 class ModManager {
@@ -57,28 +73,62 @@ class ModManager {
   final SteamScanner scanner;
   final http.Client client;
   final _uuid = const Uuid();
+  final _fileHashCache = <String, _FileHashCacheEntry>{};
+
+  /// Application storage under `%LOCALAPPDATA%\dlssg_for_sm86_gui`.
+  ///
+  /// [localAppDataDirectory] exists for tests and callers that need to supply
+  /// a different LocalAppData root.
+  static Directory defaultApplicationStorageDirectory([
+    Directory? localAppDataDirectory,
+  ]) => Directory(
+    p.join(
+      (localAppDataDirectory ?? _localAppDataDirectory()).path,
+      appStorageDirectoryName,
+    ),
+  );
+
+  static Directory defaultDataDirectory([Directory? localAppDataDirectory]) =>
+      Directory(
+        p.join(
+          defaultApplicationStorageDirectory(localAppDataDirectory).path,
+          'data',
+        ),
+      );
+
+  static Directory defaultReleaseDirectory([
+    Directory? localAppDataDirectory,
+  ]) => Directory(
+    p.join(
+      defaultApplicationStorageDirectory(localAppDataDirectory).path,
+      'release',
+    ),
+  );
+
+  static Directory _localAppDataDirectory() {
+    final localAppData = Platform.environment['LOCALAPPDATA'];
+    if (localAppData != null && localAppData.trim().isNotEmpty) {
+      return Directory(localAppData);
+    }
+    final userProfile = Platform.environment['USERPROFILE'];
+    if (userProfile != null && userProfile.trim().isNotEmpty) {
+      return Directory(p.join(userProfile, 'AppData', 'Local'));
+    }
+    throw StateError('无法确定 %LOCALAPPDATA% 目录。');
+  }
 
   static Future<ModManager> open({
     Directory? dataDirectory,
     SteamScanner? scanner,
     http.Client? client,
   }) async {
-    final localAppData = Platform.environment['LOCALAPPDATA'];
-    if (dataDirectory == null &&
-        (localAppData == null || localAppData.trim().isEmpty)) {
-      throw StateError('无法定位 %LOCALAPPDATA% 目录。');
-    }
-    final root =
-        dataDirectory ??
-        Directory(p.join(localAppData!, 'dlssg_for_sm86_gui', 'data'));
+    final root = dataDirectory ?? defaultDataDirectory();
     final releaseRoot = dataDirectory == null
-        ? Directory(p.join(root.parent.path, 'release'))
+        ? defaultReleaseDirectory()
         : Directory(p.join(root.path, 'release'));
     await root.create(recursive: true);
     await releaseRoot.create(recursive: true);
-    for (final child in ['profiles', 'backups']) {
-      await Directory(p.join(root.path, child)).create(recursive: true);
-    }
+    await Directory(p.join(root.path, 'backups')).create(recursive: true);
     final state = File(p.join(root.path, 'state.json'));
     Database db = Database();
     if (await state.exists()) {
@@ -95,17 +145,14 @@ class ModManager {
       scanner: scanner,
       client: client,
     );
+    await manager._migrateLegacyGlobalProfile();
     try {
-      // Re-read Steam manifests on every launch so installs, removals, and
-      // newly added Steam libraries appear without a manual refresh button.
       await manager.scanSteam();
       if (!manager.db.steamInitialScanCompleted) {
         manager.db.steamInitialScanCompleted = true;
         await manager._save();
       }
-    } catch (_) {
-      /* Steam may simply not be installed; retry on the next launch. */
-    }
+    } catch (_) {}
     return manager;
   }
 
@@ -116,17 +163,19 @@ class ModManager {
         : null;
   }
 
+  /// The active package always lives in one disposable directory.  The tag is
+  /// kept in state for display and update checks, not as a directory name.
+  Directory get _packageDirectory =>
+      Directory(p.join(releaseRoot.path, 'dlssg_for_sm86'));
+
   bool get hasModPackage {
-    final tag = _installedReleaseTag;
-    return tag != null &&
-        File(p.join(releaseRoot.path, tag, 'dlssg_sm86.ini')).existsSync();
+    return _installedReleaseTag != null &&
+        File(p.join(_packageDirectory.path, 'dlssg_sm86.ini')).existsSync();
   }
 
   ManagerInfo get info => ManagerInfo(
     dataDirectory: root.path,
     installedVersion: db.installedVersion,
-    knownHashes: db.catalog.hashes.length,
-    globalProfile: db.globalProfile,
     modAvailable: hasModPackage,
   );
   Future<void> _save() => atomicWrite(
@@ -137,16 +186,41 @@ class ModManager {
     if (!hasModPackage) throw StateError('请先在“驱动程序”页面下载并验证 dlssg_for_sm86。');
   }
 
-  File _profileFile(String name) {
-    if (name.trim().isEmpty || RegExp(r'[\\/:*?"<>|]').hasMatch(name))
-      throw ArgumentError('配置档名称不能为空，且不能包含路径或 Windows 非法字符');
-    return File(p.join(root.path, 'profiles', '$name.ini'));
+  Future<void> _migrateLegacyGlobalProfile() async {
+    final name = db.legacyGlobalProfile;
+    if (name == null || await _globalIniFile.exists()) return;
+    if (name.trim().isEmpty || RegExp(r'[\\/:*?"<>|]').hasMatch(name)) return;
+    final old = File(p.join(root.path, 'profiles', '$name.ini'));
+    if (await old.exists()) await copyAtomic(old, _globalIniFile);
   }
 
+  File get _globalIniFile => File(p.join(root.path, 'global.ini'));
+
   File _defaultIniFile() =>
-      File(p.join(releaseRoot.path, _installedReleaseTag!, 'dlssg_sm86.ini'));
-  File _modDll(String proxy) =>
-      File(p.join(releaseRoot.path, _installedReleaseTag!, proxy));
+      File(p.join(_packageDirectory.path, 'dlssg_sm86.ini'));
+  File _modDll(String proxy) => _proxyDllIn(_packageDirectory, proxy);
+
+  File _proxyDllIn(Directory package, String proxy) {
+    if (proxy == defaultProxy) return File(p.join(package.path, proxy));
+    final preferred = File(p.join(package.path, 'alternatives', proxy));
+    if (preferred.existsSync()) return preferred;
+    // Compatibility with the misspelled directory used by older packages.
+    final legacy = File(p.join(package.path, 'altnative', proxy));
+    if (legacy.existsSync()) return legacy;
+    return preferred;
+  }
+
+  /// Creates the editable global configuration from the INI bundled with the
+  /// installed driver package. Existing user settings are never replaced.
+  Future<void> _ensureGlobalIniFromPackage() async {
+    if (await _globalIniFile.exists()) return;
+    final source = _defaultIniFile();
+    if (!await source.exists()) {
+      throw StateError('驱动程序包缺少 dlssg_sm86.ini。');
+    }
+    await copyAtomic(source, _globalIniFile);
+  }
+
   Future<List<GameView>> listGames() async => db.games.map(view).toList();
 
   /// Returns the folder that should be shown first when choosing a game's EXE.
@@ -189,167 +263,115 @@ class ModManager {
       : File(game.exePath!).existsSync()
       ? TargetState.ready
       : TargetState.missing;
-  Set<String> get _knownHashes =>
-      db.catalog.hashes.keys.map((x) => x.toLowerCase()).toSet();
   ModStatus _modState(GameEntry game) {
     if (game.exePath == null) return const ModStatus(ModStateKind.notApplied);
     final dir = File(game.exePath!).parent;
-    final found = proxies
-        .where((proxy) => File(p.join(dir.path, proxy)).existsSync())
-        .toList();
-    final ini = File(p.join(dir.path, 'dlssg_sm86.ini')).existsSync();
-    if (found.isEmpty && !ini) return const ModStatus(ModStateKind.notApplied);
-    if (found.length != 1 || !ini)
-      return ModStatus(
-        ModStateKind.broken,
-        detail: found.length > 1 ? '检测到多个代理 DLL' : 'DLL 或 INI 缺失',
-      );
-    final hash = sha256FileSync(File(p.join(dir.path, found.single)));
-    final normalizedHash = hash.toLowerCase();
-    if (game.install?.dllSha256.toLowerCase() == normalizedHash) {
-      return ModStatus(
-        ModStateKind.applied,
-        version: game.install?.version ?? db.installedVersion ?? '本地包',
-        proxy: found.single,
-      );
+    if (!File(p.join(dir.path, 'dlssg_sm86.ini')).existsSync()) {
+      return const ModStatus(ModStateKind.notApplied);
     }
-    if (!_knownHashes.contains(normalizedHash))
-      return const ModStatus(ModStateKind.broken, detail: '代理 DLL 哈希不匹配');
-    if (db.catalog.isHistorical(normalizedHash)) {
-      return ModStatus(
-        ModStateKind.outdated,
-        version: '上游历史版本',
-        proxy: found.single,
-        detail: '检测到非最新 DLL，请更新驱动程序。',
-      );
+
+    String? proxy;
+    for (final candidate in proxies) {
+      if (!File(p.join(dir.path, candidate)).existsSync()) continue;
+      if (proxy != null) {
+        return const ModStatus(ModStateKind.applied, version: '未知版本');
+      }
+      proxy = candidate;
     }
-    return ModStatus(
-      ModStateKind.applied,
-      version: '上游最新版本',
-      proxy: found.single,
-    );
+    if (proxy == null) return const ModStatus(ModStateKind.notApplied);
+
+    var version = '未知版本';
+    final hash = _cachedSha256(File(p.join(dir.path, proxy))).toLowerCase();
+    final packaged = _modDll(proxy);
+    final currentHash = packaged.existsSync()
+        ? _cachedSha256(packaged).toLowerCase()
+        : null;
+    if (game.install?.dllSha256.toLowerCase() == hash) {
+      version = game.install?.version ?? '未知版本';
+    } else if (currentHash == hash) {
+      version = db.installedVersion ?? '本地包';
+    }
+    return ModStatus(ModStateKind.applied, proxy: proxy, version: version);
   }
 
   ConfigStatus _configState(GameEntry game) {
-    final profile = game.configProfile ?? db.globalProfile;
-    if (profile == null)
-      return const ConfigStatus(ConfigStateKind.defaultConfig);
     if (game.exePath != null) {
-      final profileFile = _profileFile(profile),
-          gameIni = File(
-            p.join(File(game.exePath!).parent.path, 'dlssg_sm86.ini'),
-          );
-      if (profileFile.existsSync() && gameIni.existsSync()) {
-        final actual = sha256FileSync(gameIni);
+      final gameIni = File(
+        p.join(File(game.exePath!).parent.path, 'dlssg_sm86.ini'),
+      );
+      if (gameIni.existsSync()) {
+        final actual = _cachedSha256(gameIni);
         if (game.appliedProfileSha256 != null &&
-            game.appliedProfileSha256 != actual)
-          return ConfigStatus(ConfigStateKind.externallyModified, profile);
+            game.appliedProfileSha256 != actual) {
+          return const ConfigStatus(ConfigStateKind.externallyModified);
+        }
       }
     }
     return ConfigStatus(
-      game.configProfile == null
-          ? ConfigStateKind.global
-          : ConfigStateKind.dedicated,
-      profile,
+      game.hasCustomConfig ? ConfigStateKind.custom : ConfigStateKind.global,
     );
-  }
-
-  Future<List<ConfigProfile>> listProfiles() async {
-    final profiles = <ConfigProfile>[];
-    final dir = Directory(p.join(root.path, 'profiles'));
-    await for (final item in dir.list()) {
-      if (item is File && p.extension(item.path).toLowerCase() == '.ini') {
-        try {
-          profiles.add(
-            parseProfile(
-              p.basenameWithoutExtension(item.path),
-              await item.readAsString(),
-            ),
-          );
-        } catch (_) {}
-      }
-    }
-    profiles.sort((a, b) => a.name.compareTo(b.name));
-    return profiles;
   }
 
   static ConfigProfile parseProfile(String name, String text) {
-    final parsed = _Ini(text);
-    bool b(String section, String key, bool fallback) =>
-        (parsed.value(section, key) ?? '$fallback').toLowerCase() == 'true' ||
-        parsed.value(section, key) == '1' ||
-        parsed.value(section, key)?.toUpperCase() == 'SM86' ||
-        parsed.value(section, key)?.toUpperCase() == 'PTX';
-    int number(String section, String key, int fallback) =>
-        int.tryParse(parsed.value(section, key) ?? '') ?? fallback;
-    return ConfigProfile(
-      name: name,
-      router:
-          (parsed.value('Compatibility', 'Router') ?? 'SM86').toUpperCase() ==
-          'SM86',
-      kernelImage:
-          (parsed.value('Compatibility', 'KernelImage') ?? 'PTX')
-              .toUpperCase() ==
-          'PTX',
-      hardwareBilinear: b('Compatibility', 'HardwareBilinear', false),
-      maxGeneratedFrames: number('FrameGeneration', 'MaxGeneratedFrames', 3),
-      loggingLevel: number('Logging', 'Level', 1),
-      advanced: AdvancedOverrides(
-        loggingExtra: parsed.has('Logging', 'Extra')
-            ? b('Logging', 'Extra', false)
-            : null,
-        debug: parsed.has('General', 'Debug')
-            ? b('General', 'Debug', false)
-            : null,
-        enabled: parsed.has('General', 'Enabled')
-            ? b('General', 'Enabled', true)
-            : null,
-      ),
-    );
+    final sections = <IniSection>[];
+    IniSection? section;
+    for (final raw in text.split(RegExp(r'\r?\n'))) {
+      final line = raw.trim();
+      final separator = line.indexOf('=');
+      if (line.startsWith('[') && line.endsWith(']')) {
+        section = IniSection(
+          name: line.substring(1, line.length - 1),
+          settings: [],
+        );
+        sections.add(section);
+      } else if (section != null &&
+          separator >= 0 &&
+          !line.startsWith(';') &&
+          !line.startsWith('#')) {
+        section.settings.add(
+          IniSetting(
+            key: line.substring(0, separator).trim(),
+            value: line.substring(separator + 1).trim(),
+          ),
+        );
+      }
+    }
+    return ConfigProfile(name: name, sections: sections);
   }
 
-  Future<void> saveProfile(ConfigProfile profile) async {
+  Future<ConfigProfile> loadGlobalConfig() async {
     _requireMod();
-    await atomicWrite(_profileFile(profile.name), utf8.encode(profile.toIni()));
+    await _ensureGlobalIniFromPackage();
+    return parseProfile('全局配置', await _globalIniFile.readAsString());
   }
 
-  Future<void> deleteProfile(String name) async {
+  Future<void> saveGlobalConfig(ConfigProfile config) async {
     _requireMod();
-    final file = _profileFile(name);
-    if (await file.exists()) await file.delete();
-    if (db.globalProfile == name) db.globalProfile = null;
-    for (final game in db.games.where((x) => x.configProfile == name)) {
-      game.configProfile = null;
+    await atomicWrite(_globalIniFile, utf8.encode(config.toIni()));
+    for (final game in db.games.where(
+      (x) =>
+          !x.hasCustomConfig &&
+          x.install != null &&
+          x.exePath != null &&
+          File(x.exePath!).existsSync(),
+    )) {
+      await _writeInheritedConfig(game);
     }
     await _save();
   }
 
-  Future<void> setGlobalProfile(String? name) async {
-    _requireMod();
-    if (name != null && !await _profileFile(name).exists())
-      throw StateError('配置档不存在');
-    db.globalProfile = name;
-    await _save();
-  }
-
-  Future<void> setGameProfile(String id, String? profile) async {
-    _requireMod();
-    if (profile != null && !await _profileFile(profile).exists())
-      throw StateError('配置档不存在');
-    _game(id).configProfile = profile;
-    await _save();
+  Future<void> useGlobalConfigForGame(String id) async {
+    await applyConfigToGame(id);
   }
 
   Future<GameEntry> addManualGame(String name, String exePath) async {
     final normalized = p.normalize(exePath).toLowerCase();
-    final found = db.games
-        .where(
-          (x) =>
-              x.exePath != null &&
-              p.normalize(x.exePath!).toLowerCase() == normalized,
-        )
-        .firstOrNull;
-    if (found != null) return found;
+    for (final game in db.games) {
+      if (game.exePath != null &&
+          p.normalize(game.exePath!).toLowerCase() == normalized) {
+        return game;
+      }
+    }
     final game = GameEntry(
       id: _uuid.v4(),
       name: name,
@@ -368,6 +390,14 @@ class ModManager {
     await _save();
   }
 
+  /// Removes a game from this manager without changing any files in its
+  /// installation directory.
+  Future<void> removeGame(String id) async {
+    final game = _game(id);
+    db.games.remove(game);
+    await _save();
+  }
+
   Future<void> launchGame(String id) async {
     final game = _game(id);
     if (game.exePath == null || !File(game.exePath!).existsSync()) {
@@ -378,11 +408,16 @@ class ModManager {
       const [],
       mode: ProcessStartMode.detached,
     );
+    game.lastPlayedAt = DateTime.now().toUtc();
+    await _save();
   }
 
-  GameEntry _game(String id) =>
-      db.games.where((x) => x.id == id).firstOrNull ??
-      (throw StateError('游戏不存在'));
+  GameEntry _game(String id) {
+    for (final game in db.games) {
+      if (game.id == id) return game;
+    }
+    throw StateError('游戏不存在');
+  }
 
   Future<void> installMod(
     String id, {
@@ -394,56 +429,93 @@ class ModManager {
     final desired = (proxy ?? game.selectedProxy ?? defaultProxy).toLowerCase();
     if (!proxies.contains(desired)) throw ArgumentError('不支持的代理 DLL');
     final source = _modDll(desired);
-    if (!await source.exists()) throw StateError('未找到已缓存的 Mod 包；请先下载有效版本');
+    if (!await source.exists()) throw StateError('未找到已缓存的驱动程序包；请先下载有效版本');
     final dir = _gameDirectory(game);
     final old = game.install?.proxy;
-    if (old != null && old != desired) await _restoreOrRemove(game, old);
     final target = File(p.join(dir.path, desired));
-    if (await target.exists() &&
-        !_knownHashes.contains(await sha256File(target))) {
-      if (game.source.kind == GameSourceKind.manual && !confirmOverwrite)
+    final hadTarget = await target.exists();
+    final detected = _modState(game);
+    final updatingDetectedDriver =
+        detected.kind == ModStateKind.applied && detected.proxy == desired;
+    // If the INI is absent, the game is not installed by definition.  Backup
+    // any target DLL even when stale state metadata happens to match it.
+    final needsBackup = hadTarget && !updatingDetectedDriver;
+    if (needsBackup) {
+      if (game.source.kind == GameSourceKind.manual && !confirmOverwrite) {
         throw StateError('目标 DLL 不是已知 DLSSG 文件。确认后将保存其原始副本并覆盖。');
-      await _recordBackup(game, desired, target);
+      }
     }
-    await copyAtomic(source, target);
-    final hash = await sha256File(target);
-    game.selectedProxy = desired;
-    game.install = ManagedInstall(
-      proxy: desired,
-      dllSha256: hash,
-      version: db.installedVersion ?? '本地包',
-      installedAt: DateTime.now().toUtc(),
+    final rollback = File(
+      p.join(dir.path, '.dlssg-$desired-${_uuid.v4()}.rollback'),
     );
-    final ini = File(p.join(dir.path, 'dlssg_sm86.ini'));
-    if (!await ini.exists())
-      await atomicWrite(ini, await _configurationBytes(game));
-    await _save();
+    if (hadTarget) await copyAtomic(target, rollback);
+    try {
+      if (needsBackup) await _recordBackup(game, desired, target);
+      await copyAtomic(source, target);
+      if (old != null && old != desired) {
+        try {
+          await _restoreOrRemove(game, old);
+        } catch (_) {
+          if (hadTarget) {
+            await copyAtomic(rollback, target);
+          } else if (await target.exists()) {
+            await target.delete();
+          }
+          rethrow;
+        }
+      }
+      final hash = await sha256File(target);
+      game.selectedProxy = desired;
+      game.install = ManagedInstall(
+        proxy: desired,
+        dllSha256: hash,
+        version: db.installedVersion ?? '本地包',
+        installedAt: DateTime.now().toUtc(),
+      );
+      final ini = File(p.join(dir.path, 'dlssg_sm86.ini'));
+      if (!await ini.exists()) {
+        await atomicWrite(ini, await _configurationBytes());
+        game.hasCustomConfig = false;
+        game.appliedProfileSha256 = await sha256File(ini);
+      } else if (game.appliedProfileSha256 == null) {
+        // Keep an existing external configuration intact while recording it
+        // as a game-specific configuration once its proxy is managed here.
+        game.hasCustomConfig = true;
+        game.appliedProfileSha256 = await sha256File(ini);
+      }
+      await _save();
+    } finally {
+      if (await rollback.exists()) await rollback.delete();
+    }
   }
 
   Future<void> uninstallMod(String id) async {
     final game = _game(id);
-    final proxy = game.install?.proxy ?? game.selectedProxy;
+    // Use the on-disk proxy when recognizing an installation that predates
+    // per-game metadata, so uninstall removes the DLL that was actually found.
+    final proxy =
+        game.install?.proxy ?? _modState(game).proxy ?? game.selectedProxy;
     if (proxy != null) await _restoreOrRemove(game, proxy);
     final ini = File(p.join(_gameDirectory(game).path, 'dlssg_sm86.ini'));
     if (await ini.exists()) await ini.delete();
     game.install = null;
     game.appliedProfileSha256 = null;
+    game.hasCustomConfig = false;
     await _save();
   }
 
   Future<void> applyConfigToGame(String id) async {
     _requireMod();
     final game = _game(id);
-    final ini = File(p.join(_gameDirectory(game).path, 'dlssg_sm86.ini'));
-    await atomicWrite(ini, await _configurationBytes(game));
-    game.appliedProfileSha256 = await sha256File(ini);
+    game.hasCustomConfig = false;
+    await _writeInheritedConfig(game);
     await _save();
   }
 
   /// Reads the configuration that is currently effective for one game.
   ///
-  /// A missing game INI falls back to the bundled default so the settings UI
-  /// can show useful values before the Mod has been installed.
+  /// A missing game INI inherits the global configuration created from the
+  /// installed driver's bundled dlssg_sm86.ini.
   Future<ConfigProfile> loadGameConfig(String id) async {
     final game = _game(id);
     final ini = game.exePath == null
@@ -452,39 +524,51 @@ class ModManager {
     if (ini != null && await ini.exists()) {
       return parseProfile(game.name, await ini.readAsString());
     }
-    final packaged = _defaultIniFile();
-    if (await packaged.exists()) {
-      return parseProfile(game.name, await packaged.readAsString());
-    }
-    return parseProfile(game.name, defaultIni);
+    _requireMod();
+    await _ensureGlobalIniFromPackage();
+    return parseProfile(game.name, await _globalIniFile.readAsString());
   }
 
-  /// Immediately persists a game's driver settings to its dlssg_sm86.ini.
-  /// Direct edits intentionally take precedence over a previously selected
-  /// reusable profile, which prevents a later profile application from
-  /// silently overwriting the user's game-specific choices.
+  /// Immediately persists a game's custom settings to its dlssg_sm86.ini.
   Future<void> saveGameConfig(String id, ConfigProfile config) async {
-    _requireMod();
     final game = _game(id);
     final ini = File(p.join(_gameDirectory(game).path, 'dlssg_sm86.ini'));
+    if (!await ini.exists()) _requireMod();
     await atomicWrite(ini, utf8.encode(config.toIni()));
-    game.configProfile = null;
+    game.hasCustomConfig = true;
     game.appliedProfileSha256 = await sha256File(ini);
     await _save();
   }
 
-  Future<List<int>> _configurationBytes(GameEntry game) async {
-    final profile = game.configProfile ?? db.globalProfile;
-    if (profile != null) return _profileFile(profile).readAsBytes();
-    final packaged = _defaultIniFile();
-    return packaged.existsSync()
-        ? packaged.readAsBytes()
-        : utf8.encode(defaultIni);
+  Future<List<int>> _configurationBytes() async {
+    await _ensureGlobalIniFromPackage();
+    return _globalIniFile.readAsBytes();
+  }
+
+  Future<void> _writeInheritedConfig(GameEntry game) async {
+    final ini = File(p.join(_gameDirectory(game).path, 'dlssg_sm86.ini'));
+    await atomicWrite(ini, await _configurationBytes());
+    game.appliedProfileSha256 = await sha256File(ini);
+  }
+
+  String _cachedSha256(File file) {
+    final stat = file.statSync();
+    final key = p.normalize(file.path).toLowerCase();
+    final cached = _fileHashCache[key];
+    if (cached != null &&
+        cached.size == stat.size &&
+        cached.modified == stat.modified) {
+      return cached.hash;
+    }
+    final hash = sha256FileSync(file);
+    _fileHashCache[key] = _FileHashCacheEntry(stat.size, stat.modified, hash);
+    return hash;
   }
 
   Directory _gameDirectory(GameEntry game) {
-    if (game.exePath == null || !File(game.exePath!).existsSync())
+    if (game.exePath == null || !File(game.exePath!).existsSync()) {
       throw StateError('请先选择有效的游戏 EXE');
+    }
     return File(game.exePath!).parent;
   }
 
@@ -511,58 +595,120 @@ class ModManager {
   Future<void> _restoreOrRemove(GameEntry game, String proxy) async {
     final target = File(p.join(_gameDirectory(game).path, proxy)),
         backup = _backupFile(game, proxy);
-    if (await backup.exists())
+    if (await backup.exists()) {
       await copyAtomic(backup, target);
-    else if (await target.exists())
+    } else if (await target.exists()) {
       await target.delete();
+    }
     game.backups.removeWhere((b) => b.proxy == proxy);
   }
 
   Future<int> scanSteam() async {
-    db = Database(
-      games: await scanner.scan(existing: db.games),
-      globalProfile: db.globalProfile,
-      catalog: db.catalog,
-      installedVersion: db.installedVersion,
-      steamInitialScanCompleted: db.steamInitialScanCompleted,
-    );
-    await _save();
+    final games = await scanner.scan(existing: db.games);
+    final changed =
+        jsonEncode(games.map((game) => game.toJson()).toList()) !=
+        jsonEncode(db.games.map((game) => game.toJson()).toList());
+    if (changed) {
+      db = Database(
+        games: games,
+        installedVersion: db.installedVersion,
+        legacyGlobalProfile: db.legacyGlobalProfile,
+        steamInitialScanCompleted: db.steamInitialScanCompleted,
+      );
+      await _save();
+    }
     return db.games.where((x) => x.source.kind == GameSourceKind.steam).length;
   }
 
-  Future<String> refreshModFromGithub() async {
-    Future<Map<String, dynamic>> getJson(String url, String label) async {
-      final response = await client.get(
-        Uri.parse(url),
-        headers: {'User-Agent': 'DLSSG-SM86-Manager'},
-      );
-      if (response.statusCode < 200 || response.statusCode >= 300)
-        throw StateError('无法获取 $label：HTTP ${response.statusCode}');
-      return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
-    }
+  Future<String> latestDriverVersion() async =>
+      (await _latestRelease()).version;
 
-    final catalog = ModHashCatalog.fromJson(
-      await getJson(catalogUrl, 'mod-hash-catalog.json'),
+  Future<_LatestRelease> _latestRelease() async {
+    final response = await client.get(
+      Uri.parse(latestReleaseUrl),
+      headers: {'User-Agent': 'DLSSG-SM86-Manager'},
     );
-    final version = _shortCommit(catalog.sourceHeadCommit);
-    final releaseDirectory = Directory(p.join(releaseRoot.path, version));
-    final archiveFile = File(p.join(releaseDirectory.path, modArchiveName));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw StateError('无法获取上游最新 Release：HTTP ${response.statusCode}');
+    }
+    final release = Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+    final version = _releaseTag(release['tag_name']);
+    final archiveUrl = release['tarball_url']?.toString();
+    if (archiveUrl == null || archiveUrl.isEmpty) {
+      throw StateError('上游最新 Release 未提供 tar.gz 下载地址。');
+    }
+    return _LatestRelease(version, Uri.parse(archiveUrl));
+  }
+
+  Future<String> refreshModFromGithub({
+    void Function(DownloadProgress progress)? onProgress,
+  }) async {
+    final release = await _latestRelease();
+    final version = release.version;
+    final previousVersion = _installedReleaseTag;
+    final releaseDirectory = _packageDirectory;
+    final archiveDirectory = Directory(p.join(releaseRoot.path, version));
+    final archiveFile = File(p.join(archiveDirectory.path, modArchiveName));
+    final previousCacheArchive = File(p.join(releaseRoot.path, modArchiveName));
+    final previousCacheVersion = File(
+      p.join(releaseRoot.path, '$modArchiveName.version'),
+    );
+    final legacyArchiveFile = File(
+      p.join(releaseDirectory.path, modArchiveName),
+    );
     List<int> archiveBytes;
-    var downloaded = false;
     if (await archiveFile.exists()) {
       archiveBytes = await archiveFile.readAsBytes();
+    } else if (await previousCacheArchive.exists() &&
+        await previousCacheVersion.exists() &&
+        (await previousCacheVersion.readAsString()).trim() == version) {
+      archiveBytes = await previousCacheArchive.readAsBytes();
+      await atomicWrite(archiveFile, archiveBytes);
+    } else if (previousVersion == version && await legacyArchiveFile.exists()) {
+      archiveBytes = await legacyArchiveFile.readAsBytes();
+      await atomicWrite(archiveFile, archiveBytes);
     } else {
-      final download = await client.get(
-        Uri.parse('$releaseDownloadBase/$version/$modArchiveName'),
-        headers: {'User-Agent': 'DLSSG-SM86-Manager'},
-      );
+      final request = http.Request('GET', release.archiveUrl)
+        ..headers['User-Agent'] = 'DLSSG-SM86-Manager';
+      final download = await client.send(request);
       if (download.statusCode < 200 || download.statusCode >= 300) {
         throw StateError(
-          '下载 Mod $version 的 tar.gz 失败：HTTP ${download.statusCode}',
+          '下载上游 Release $version 的 tar.gz 失败：HTTP ${download.statusCode}',
         );
       }
-      archiveBytes = download.bodyBytes;
-      downloaded = true;
+      final totalBytes = download.contentLength;
+      var downloadedBytes = 0;
+      final buffer = BytesBuilder(copy: false);
+      onProgress?.call(
+        DownloadProgress(
+          phase: DownloadPhase.downloading,
+          downloadedBytes: downloadedBytes,
+          totalBytes: totalBytes,
+        ),
+      );
+      await for (final chunk in download.stream) {
+        buffer.add(chunk);
+        downloadedBytes += chunk.length;
+        onProgress?.call(
+          DownloadProgress(
+            phase: DownloadPhase.downloading,
+            downloadedBytes: downloadedBytes,
+            totalBytes: totalBytes,
+          ),
+        );
+      }
+      archiveBytes = buffer.takeBytes();
+      await atomicWrite(archiveFile, archiveBytes);
+    }
+    onProgress?.call(
+      DownloadProgress(
+        phase: DownloadPhase.verifying,
+        downloadedBytes: archiveBytes.length,
+        totalBytes: archiveBytes.length,
+      ),
+    );
+    if (await releaseDirectory.exists()) {
+      await releaseDirectory.delete(recursive: true);
     }
     final stage = Directory(p.join(releaseRoot.path, '.stage-${_uuid.v4()}'));
     await stage.create(recursive: true);
@@ -574,55 +720,22 @@ class ModManager {
       for (final item in archive) {
         final relative = _upstreamArchivePath(item.name);
         if (!item.isFile || relative == null) continue;
-        final targetName = switch (relative) {
-          'version.dll' || 'dlssg_sm86.ini' => relative,
-          final path
-              when path.startsWith('altnative/') &&
-                  proxies.contains(p.basename(path)) =>
-            p.basename(path),
-          _ => null,
-        };
-        if (targetName == null) continue;
-        await File(p.join(stage.path, targetName))
-            .writeAsBytes(item.content as List<int>, flush: true);
+        final target = File(p.join(stage.path, relative));
+        await target.parent.create(recursive: true);
+        await target.writeAsBytes(item.content as List<int>, flush: true);
       }
       for (final proxy in proxies) {
-        final sourcePath = proxy == defaultProxy ? proxy : 'altnative/$proxy';
-        final expectedHash = catalog.latestFileHash(sourcePath);
-        if (expectedHash == null) {
-          throw StateError('哈希目录未声明上游文件：$sourcePath');
-        }
-        final file = File(p.join(stage.path, proxy));
-        if (!await file.exists()) throw StateError('Mod 包缺少代理 DLL：$proxy');
-        if ((await sha256File(file)).toLowerCase() != expectedHash) {
-          throw StateError('Mod 文件哈希不匹配：$sourcePath');
-        }
+        final file = _proxyDllIn(stage, proxy);
+        if (!await file.exists()) throw StateError('驱动程序包缺少代理 DLL：$proxy');
       }
-      if (!await File(p.join(stage.path, 'dlssg_sm86.ini')).exists())
-        throw StateError('Mod 包缺少 dlssg_sm86.ini');
-      final stagedArchive = File(p.join(stage.path, modArchiveName));
-      if (downloaded)
-        await atomicWrite(stagedArchive, archiveBytes);
-      else
-        await archiveFile.copy(stagedArchive.path);
-      final previous = Directory(
-        p.join(releaseRoot.path, '.previous-${_uuid.v4()}'),
-      );
-      if (await releaseDirectory.exists()) {
-        await releaseDirectory.rename(previous.path);
+      final ini = File(p.join(stage.path, 'dlssg_sm86.ini'));
+      if (!await ini.exists()) {
+        throw StateError('上游 Release 缺少 dlssg_sm86.ini。');
       }
-      try {
-        await stage.rename(releaseDirectory.path);
-      } catch (_) {
-        if (!await releaseDirectory.exists() && await previous.exists()) {
-          await previous.rename(releaseDirectory.path);
-        }
-        rethrow;
-      }
-      db.catalog = catalog;
+      await stage.rename(releaseDirectory.path);
+      await _ensureGlobalIniFromPackage();
       db.installedVersion = version;
       await _save();
-      if (await previous.exists()) await previous.delete(recursive: true);
       return version;
     } catch (_) {
       if (await stage.exists()) await stage.delete(recursive: true);
@@ -631,17 +744,30 @@ class ModManager {
   }
 }
 
-String _shortCommit(String? commit) {
-  final normalized = commit?.trim().toLowerCase() ?? '';
-  if (!RegExp(r'^[0-9a-f]{7,40}$').hasMatch(normalized)) {
-    throw StateError('mod-hash-catalog.json 缺少有效的上游 main commit。');
+class _FileHashCacheEntry {
+  const _FileHashCacheEntry(this.size, this.modified, this.hash);
+  final int size;
+  final DateTime modified;
+  final String hash;
+}
+
+class _LatestRelease {
+  const _LatestRelease(this.version, this.archiveUrl);
+  final String version;
+  final Uri archiveUrl;
+}
+
+String _releaseTag(Object? tag) {
+  final normalized = tag?.toString().trim() ?? '';
+  if (!RegExp(r'^[0-9A-Za-z._-]+$').hasMatch(normalized)) {
+    throw StateError('上游 latest Release 缺少可用的 tag_name。');
   }
-  return normalized.substring(0, 7);
+  return normalized;
 }
 
 /// GitHub source archives wrap every file in one repository-name directory.
-/// Only return a safe path below that directory; callers deliberately extract
-/// the small runtime subset rather than materializing arbitrary source files.
+/// Only return a safe path below that directory, preserving the package's
+/// complete file and subdirectory layout during extraction.
 String? _upstreamArchivePath(String name) {
   final normalized = name.replaceAll('\\', '/');
   final parts = normalized.split('/').where((part) => part.isNotEmpty).toList();
@@ -650,34 +776,11 @@ String? _upstreamArchivePath(String name) {
     throw StateError('tar.gz 含有不安全路径');
   }
   if (parts.length == 1) return null;
-  return parts.skip(1).join('/');
-}
-
-class _Ini {
-  _Ini(String input) {
-    String? section;
-    for (final raw in input.split(RegExp(r'\r?\n'))) {
-      final line = raw.trim();
-      if (line.startsWith('[') && line.endsWith(']')) {
-        section = line.substring(1, line.length - 1).toLowerCase();
-      } else if (section != null &&
-          line.contains('=') &&
-          !line.startsWith(';')) {
-        final at = line.indexOf('=');
-        _values['$section/${line.substring(0, at).trim().toLowerCase()}'] = line
-            .substring(at + 1)
-            .trim();
-      }
-    }
+  final relative = parts.skip(1).join('/');
+  if (p.isAbsolute(relative) || RegExp(r'^[A-Za-z]:').hasMatch(relative)) {
+    throw StateError('tar.gz 含有不安全路径');
   }
-  final _values = <String, String>{};
-  String? value(String section, String key) =>
-      _values['${section.toLowerCase()}/${key.toLowerCase()}'];
-  bool has(String section, String key) => value(section, key) != null;
-}
-
-extension FirstOrNull<T> on Iterable<T> {
-  T? get firstOrNull => isEmpty ? null : first;
+  return relative;
 }
 
 String _sha256(List<int> bytes) => sha256.convert(bytes).toString();
