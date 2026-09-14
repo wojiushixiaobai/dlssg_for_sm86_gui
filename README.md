@@ -1,6 +1,6 @@
 # DLSSG for SM86 Manager
 
-`%LOCALAPPDATA%\dlssg_for_sm86_gui\data`；驱动程序压缩包缓存写入。
+`%LOCALAPPDATA%\dlssg_for_sm86_gui` 配置文件路径。
 
 ## 开发
 
