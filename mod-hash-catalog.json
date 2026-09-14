@@ -1,0 +1,44 @@
+{
+  "generated_at": "2026-09-14T08:44:22.230954Z",
+  "hashes": {
+    "03d445237d519ac48cd9226278a0f07aecd7ac597697697eb64404e1d51b3c5a": "version.dll",
+    "1004dd4ee0edbe4e1af4c8c7b30d4786bea0f5e7c0412566996b4c2543ae7e36": "winmm.dll",
+    "1619839e4d1b6145ce9a587ba807f42e64f2b0984af9e81700d42ccf46ff7253": "winhttp.dll",
+    "2983e0ee0a6fe84e0a9860d9fecf5661ca1ee5db5650e3f3cd4c6cb60ad5b6c7": "winmm.dll",
+    "8d29eddbd7f1c3e272d07f94ab8812a80ef5b7aeb73923320bf9a432ddcf74c0": "dxgi.dll",
+    "8f2516982246e3baa46d1d3926a94dc9aadfb8a248c17fe9ff811527676525f9": "winhttp.dll",
+    "92bb81b9f0fc52711d7147ef6a4bfb8af2c06299f77a6e1e28effb8b887a5503": "version.dll",
+    "93ec6fc4e27982b3e202a88ac58ddc48bcd52fb8e64953daaf6d5a530f1928f2": "dinput8.dll",
+    "c844646d835a7b88ed1382eea80403d38b433f8ac09cf92581c73698c44ae7c2": "version.dll",
+    "ef3c3d49c5b5c8a17289c24da9b22885570793d72f3db628fa500f9efdb20489": "dinput8.dll",
+    "fe69f30bf6a5050267053d6596827a031abb8654a4704b89ec1aa38f5f2fe16b": "dxgi.dll"
+  },
+  "historical": {
+    "files": [
+      {"commits": ["eb631bba6aea2f68607b7af65c926bf599b585eb", "1fb9ecbd980b1f191c092dce1b072b3cb9bd8984"], "file_name": "dinput8.dll", "path": "altnative/dinput8.dll", "sha256": "93ec6fc4e27982b3e202a88ac58ddc48bcd52fb8e64953daaf6d5a530f1928f2"},
+      {"commits": ["eb631bba6aea2f68607b7af65c926bf599b585eb", "1fb9ecbd980b1f191c092dce1b072b3cb9bd8984"], "file_name": "dxgi.dll", "path": "altnative/dxgi.dll", "sha256": "fe69f30bf6a5050267053d6596827a031abb8654a4704b89ec1aa38f5f2fe16b"},
+      {"commits": ["eb631bba6aea2f68607b7af65c926bf599b585eb", "1fb9ecbd980b1f191c092dce1b072b3cb9bd8984"], "file_name": "winhttp.dll", "path": "altnative/winhttp.dll", "sha256": "8f2516982246e3baa46d1d3926a94dc9aadfb8a248c17fe9ff811527676525f9"},
+      {"commits": ["eb631bba6aea2f68607b7af65c926bf599b585eb", "1fb9ecbd980b1f191c092dce1b072b3cb9bd8984"], "file_name": "winmm.dll", "path": "altnative/winmm.dll", "sha256": "2983e0ee0a6fe84e0a9860d9fecf5661ca1ee5db5650e3f3cd4c6cb60ad5b6c7"},
+      {"commits": ["eb631bba6aea2f68607b7af65c926bf599b585eb", "1fb9ecbd980b1f191c092dce1b072b3cb9bd8984", "5f62ff44a9c08f9841fa605e7b7160f79ccd2c40"], "file_name": "version.dll", "path": "archive/version.dll", "sha256": "03d445237d519ac48cd9226278a0f07aecd7ac597697697eb64404e1d51b3c5a"},
+      {"commits": ["e28330a50eae6ec8cbd61ca0310d4b4ed12172fd", "cce8012e785f425b92e9ab47624b1491921d6b5a", "98bfffb98223665c24569c8c2ec7cca40405907d", "8c81449d22dcb50c653ba9cc66e4f5196f385777", "bf5e89ba464534dfced77cad1b93064985d38bf8", "02baa18ba0d535221c1767117e00720a8fee7875", "a4760d4a49d6c791bba88f24378a56c0dd1c57b0"], "file_name": "version.dll", "path": "version.dll", "sha256": "03d445237d519ac48cd9226278a0f07aecd7ac597697697eb64404e1d51b3c5a"},
+      {"commits": ["eb631bba6aea2f68607b7af65c926bf599b585eb", "1fb9ecbd980b1f191c092dce1b072b3cb9bd8984"], "file_name": "version.dll", "path": "version.dll", "sha256": "92bb81b9f0fc52711d7147ef6a4bfb8af2c06299f77a6e1e28effb8b887a5503"}
+    ]
+  },
+  "latest": {
+    "commit": "5f62ff44a9c08f9841fa605e7b7160f79ccd2c40",
+    "files": [
+      {"commits": ["5f62ff44a9c08f9841fa605e7b7160f79ccd2c40"], "file_name": "dinput8.dll", "path": "altnative/dinput8.dll", "sha256": "ef3c3d49c5b5c8a17289c24da9b22885570793d72f3db628fa500f9efdb20489"},
+      {"commits": ["5f62ff44a9c08f9841fa605e7b7160f79ccd2c40"], "file_name": "dxgi.dll", "path": "altnative/dxgi.dll", "sha256": "8d29eddbd7f1c3e272d07f94ab8812a80ef5b7aeb73923320bf9a432ddcf74c0"},
+      {"commits": ["5f62ff44a9c08f9841fa605e7b7160f79ccd2c40"], "file_name": "winhttp.dll", "path": "altnative/winhttp.dll", "sha256": "1619839e4d1b6145ce9a587ba807f42e64f2b0984af9e81700d42ccf46ff7253"},
+      {"commits": ["5f62ff44a9c08f9841fa605e7b7160f79ccd2c40"], "file_name": "winmm.dll", "path": "altnative/winmm.dll", "sha256": "1004dd4ee0edbe4e1af4c8c7b30d4786bea0f5e7c0412566996b4c2543ae7e36"},
+      {"commits": ["5f62ff44a9c08f9841fa605e7b7160f79ccd2c40"], "file_name": "version.dll", "path": "version.dll", "sha256": "c844646d835a7b88ed1382eea80403d38b433f8ac09cf92581c73698c44ae7c2"}
+    ]
+  },
+  "schema_version": 2,
+  "source": {
+    "commits_scanned": 10,
+    "head_commit": "5f62ff44a9c08f9841fa605e7b7160f79ccd2c40",
+    "latest_path_patterns": ["version.dll", "altnative/*.dll"],
+    "repository": "https://github.com/sdli1995/dlssg_for_sm86"
+  }
+}
