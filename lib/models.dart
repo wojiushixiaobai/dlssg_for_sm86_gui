@@ -230,6 +230,7 @@ class Database {
     this.installedVersion,
     this.legacyGlobalProfile,
     this.steamInitialScanCompleted = false,
+    this.steamExecutableDetectionVersion = 0,
     Map<String, int>? steamManifestModificationTimes,
   }) : games = games ?? [],
        steamManifestModificationTimes = steamManifestModificationTimes == null
@@ -241,6 +242,7 @@ class Database {
   /// One-time migration source for state files written before global.ini.
   final String? legacyGlobalProfile;
   bool steamInitialScanCompleted;
+  int steamExecutableDetectionVersion;
   Map<String, int>? steamManifestModificationTimes;
   factory Database.fromJsonText(String text) {
     final m = _map(jsonDecode(text));
@@ -254,6 +256,10 @@ class Database {
           (m['steamInitialScanCompleted'] ??
               m['steam_initial_scan_completed']) ==
           true,
+      steamExecutableDetectionVersion: _int(
+        m['steamExecutableDetectionVersion'] ??
+            m['steam_executable_detection_version'],
+      ),
       steamManifestModificationTimes: _modificationTimes(
         m['steamManifestModificationTimes'] ??
             m['steam_manifest_modification_times'],
@@ -264,9 +270,12 @@ class Database {
     'games': games.map((g) => g.toJson()).toList(),
     'installed_version': installedVersion,
     'steam_initial_scan_completed': steamInitialScanCompleted,
+    'steam_executable_detection_version': steamExecutableDetectionVersion,
     'steam_manifest_modification_times': steamManifestModificationTimes,
   });
 }
+
+int _int(Object? value) => value is int ? value : int.tryParse('$value') ?? 0;
 
 Map<String, int>? _modificationTimes(Object? value) {
   if (value is! Map) return null;

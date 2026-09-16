@@ -522,17 +522,43 @@ class SteamScanner {
         gameFolder,
         steamLaunchExecutables[appId] ?? const [],
       );
+      final savedExe =
+          previous?.exePath != null &&
+              File(previous!.exePath!).existsSync() &&
+              _isWithin(previous.exePath!, gameFolder.path)
+          ? previous.exePath
+          : null;
+      final configuredOrSavedExe = steamDefinedExe ?? savedExe;
+      final isUnrealGame =
+          (configuredOrSavedExe != null &&
+              _isStandardUnrealEngineExecutable(
+                configuredOrSavedExe.replaceAll('/', '\\').toLowerCase(),
+              )) ||
+          await _hasUnrealEngineLayout(gameFolder);
+
+      // Steam commonly lists a small bootstrap launcher as its default launch
+      // target. The launcher does not load the renderer DLLs, so proxy DLLs
+      // must instead be deployed next to UE's packaged game binary. Do this
+      // only after recognizing the game's UE installation layout.
+      final unrealExe =
+          isUnrealGame &&
+              (configuredOrSavedExe == null ||
+                  !isUnrealEngineLaunchExecutable(configuredOrSavedExe))
+          ? await _findGameExecutable(
+              gameFolder,
+              gameName: name,
+              installDir: installDir,
+              onlyUnrealEngineExecutable: true,
+            )
+          : null;
       final detectedExe =
-          steamDefinedExe ??
-          (previous?.exePath != null &&
-                  File(previous!.exePath!).existsSync() &&
-                  _isWithin(previous.exePath!, gameFolder.path)
-              ? previous.exePath
-              : await _findGameExecutable(
-                  gameFolder,
-                  gameName: name,
-                  installDir: installDir,
-                ));
+          unrealExe ??
+          configuredOrSavedExe ??
+          await _findGameExecutable(
+            gameFolder,
+            gameName: name,
+            installDir: installDir,
+          );
       if (scanned != null) {
         scanned.name = name;
         scanned.source = GameSource.steam(appId, installed.library.path);
@@ -540,6 +566,7 @@ class SteamScanner {
           scanned.lastPlayedAt = lastPlayed[appId];
         }
         if (steamDefinedExe != null ||
+            _shouldReplaceWithUnrealExecutable(scanned.exePath, detectedExe) ||
             scanned.exePath == null ||
             !File(scanned.exePath!).existsSync()) {
           scanned.exePath = detectedExe;
@@ -554,6 +581,10 @@ class SteamScanner {
           previousSteam.lastPlayedAt = lastPlayed[appId];
         }
         if (steamDefinedExe != null ||
+            _shouldReplaceWithUnrealExecutable(
+              previousSteam.exePath,
+              detectedExe,
+            ) ||
             previousSteam.exePath == null ||
             !File(previousSteam.exePath!).existsSync()) {
           previousSteam.exePath = detectedExe;
@@ -645,13 +676,20 @@ class SteamScanner {
     Directory gameFolder,
     List<String> relativeExecutables,
   ) {
-    // Steam may offer a launcher as the default plus the actual UE Shipping
-    // executable as another Windows launch option. For proxy deployment the
-    // latter is the process that loads the renderer DLLs.
+    // A standard UE Shipping binary is unambiguous and should outrank Steam's
+    // bootstrap launcher. Other paths are left in Steam's declared order;
+    // non-standard Engine/Binaries paths are only preferred after the game
+    // directory itself passes the UE layout check.
     final candidates = [
-      ...relativeExecutables.where(isUnrealEngineLaunchExecutable),
       ...relativeExecutables.where(
-        (executable) => !isUnrealEngineLaunchExecutable(executable),
+        (executable) => _isStandardUnrealEngineExecutable(
+          executable.replaceAll('/', '\\').toLowerCase(),
+        ),
+      ),
+      ...relativeExecutables.where(
+        (executable) => !_isStandardUnrealEngineExecutable(
+          executable.replaceAll('/', '\\').toLowerCase(),
+        ),
       ),
     ];
     for (final executable in candidates) {
@@ -667,15 +705,75 @@ class SteamScanner {
     return null;
   }
 
-  /// Whether a Steam launch executable explicitly identifies a packaged
-  /// Unreal game binary. appinfo.vdf has no engine field, so this intentionally
-  /// uses only UE's standard Shipping binary layout.
+  /// Whether a path identifies a packaged Unreal game runtime executable.
+  ///
+  /// UE games normally use `<Project>/Binaries/Win64/*-Win64-Shipping.exe`,
+  /// but some publishers place their game executable directly in
+  /// `Engine/Binaries/Win64*`. The latter is deliberately restricted to a
+  /// direct child of that directory so bundled helper executables are ignored.
   static bool isUnrealEngineLaunchExecutable(String executable) {
     final normalized = executable.replaceAll('/', '\\').toLowerCase();
-    if (normalized.contains(r'\engine\binaries\win64\')) return false;
-    return RegExp(
-      r'(?:^|\\)binaries\\win64\\[^\\]+-win64-(?:shipping|development|test|debug)(?:-[^\\]+)?\.exe$',
+    if (_isStandardUnrealEngineExecutable(normalized)) return true;
+    final hasEngineRuntimeBinary = RegExp(
+      r'(?:^|\\)engine\\binaries\\win64[^\\]*\\[^\\]+\.exe$',
     ).hasMatch(normalized);
+    return hasEngineRuntimeBinary && !_isUnrealEngineToolExecutable(normalized);
+  }
+
+  static bool _isStandardUnrealEngineExecutable(String executable) => RegExp(
+    r'(?:^|\\)binaries\\win64\\[^\\]+-win64-(?:shipping|development|test|debug)(?:-[^\\]+)?\.exe$',
+  ).hasMatch(executable);
+
+  static bool _isUnrealEngineToolExecutable(String normalizedPath) =>
+      _unrealEngineToolNames.contains(
+        _normalizedName(p.basenameWithoutExtension(normalizedPath)),
+      );
+
+  static bool _shouldReplaceWithUnrealExecutable(
+    String? current,
+    String? detected,
+  ) =>
+      detected != null &&
+      isUnrealEngineLaunchExecutable(detected) &&
+      (current == null || !isUnrealEngineLaunchExecutable(current));
+
+  /// Recognizes a packaged UE installation without relying on the executable
+  /// name. Publishers can rename their game binary, but the engine directory
+  /// retains a distinctive combination of runtime binaries and UE content.
+  static Future<bool> _hasUnrealEngineLayout(Directory gameFolder) async {
+    if (!await gameFolder.exists()) return false;
+    try {
+      await for (final item in gameFolder.list(
+        recursive: true,
+        followLinks: false,
+      )) {
+        if (item is File &&
+            _isStandardUnrealEngineExecutable(
+              p
+                  .relative(item.path, from: gameFolder.path)
+                  .replaceAll('/', '\\')
+                  .toLowerCase(),
+            )) {
+          return true;
+        }
+        if (item is! Directory ||
+            p.basename(item.path).toLowerCase() != 'engine') {
+          continue;
+        }
+        final binaries = Directory(p.join(item.path, 'Binaries'));
+        final content = Directory(p.join(item.path, 'Content'));
+        if (!content.existsSync() || !binaries.existsSync()) continue;
+        await for (final child in binaries.list(followLinks: false)) {
+          if (child is Directory &&
+              p.basename(child.path).toLowerCase().startsWith('win64')) {
+            return true;
+          }
+        }
+      }
+    } on FileSystemException {
+      return false;
+    }
+    return false;
   }
 
   static List<String> parseLibraryFolders(String text) {
@@ -726,6 +824,7 @@ class SteamScanner {
     Directory gameFolder, {
     required String gameName,
     required String installDir,
+    bool onlyUnrealEngineExecutable = false,
   }) async {
     if (!await gameFolder.exists()) return null;
     final normalizedInstallDir = _normalizedName(installDir);
@@ -743,6 +842,8 @@ class SteamScanner {
         final stem = p.basenameWithoutExtension(item.path);
         if (_ignoredExecutableNames.contains(_normalizedName(stem))) continue;
         final relative = p.relative(item.path, from: gameFolder.path);
+        final isUnrealExecutable = isUnrealEngineLaunchExecutable(relative);
+        if (onlyUnrealEngineExecutable && !isUnrealExecutable) continue;
         final depth = p.split(relative).length - 1;
         final normalizedStem = _normalizedName(stem);
         var score = 0;
@@ -753,6 +854,9 @@ class SteamScanner {
             normalizedStem.contains(normalizedInstallDir)) {
           score += 20;
         }
+        // A packaged UE executable is where the graphics runtime lives. Give
+        // it a decisive preference over similarly named root launchers.
+        if (isUnrealExecutable) score += 1000;
         score -= depth * 4;
         if (score > bestScore) {
           best = item;
@@ -778,8 +882,26 @@ class SteamScanner {
     'unitycrashhandler32',
     'unitycrashhandler64',
     'crashreportclient',
+    'crashreporter',
+    'unicrashreporter',
+    'unrealcefsubprocess',
     'eosbootstrapper',
     'launcher',
+  };
+
+  static const _unrealEngineToolNames = {
+    'crashreportclient',
+    'crashreporter',
+    'unicrashreporter',
+    'shadercompileworker',
+    'unrealeditor',
+    'unrealeditorcmd',
+    'unrealinsights',
+    'unrealcefsubprocess',
+    'unreallightmass',
+    'unrealpak',
+    'unrealtrace',
+    'unrealversionselector',
   };
 
   // Steamworks Common Redistributables is a Steam support component, not a

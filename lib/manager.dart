@@ -70,6 +70,10 @@ class GameRequiresElevationException implements Exception {
 }
 
 class ModManager {
+  // Increment when executable selection changes so existing state files are
+  // refreshed even if Steam's manifests have not changed.
+  static const _steamExecutableDetectionVersion = 1;
+
   ModManager._(
     this.root,
     this.releaseRoot,
@@ -158,7 +162,12 @@ class ModManager {
     );
     await manager._migrateLegacyGlobalProfile();
     try {
-      await manager.refreshSteamIfChanged();
+      if (manager.db.steamExecutableDetectionVersion <
+          _steamExecutableDetectionVersion) {
+        await manager.scanSteam();
+      } else {
+        await manager.refreshSteamIfChanged();
+      }
       if (!manager.db.steamInitialScanCompleted) {
         manager.db.steamInitialScanCompleted = true;
         await manager._save();
@@ -653,18 +662,22 @@ class ModManager {
     final changed =
         jsonEncode(games.map((game) => game.toJson()).toList()) !=
         jsonEncode(db.games.map((game) => game.toJson()).toList());
+    final executableDetectionChanged =
+        db.steamExecutableDetectionVersion != _steamExecutableDetectionVersion;
     if (changed) {
       db = Database(
         games: games,
         installedVersion: db.installedVersion,
         legacyGlobalProfile: db.legacyGlobalProfile,
         steamInitialScanCompleted: db.steamInitialScanCompleted,
+        steamExecutableDetectionVersion: _steamExecutableDetectionVersion,
         steamManifestModificationTimes: modificationTimes,
       );
     } else {
       db.steamManifestModificationTimes = Map.unmodifiable(modificationTimes);
+      db.steamExecutableDetectionVersion = _steamExecutableDetectionVersion;
     }
-    if (changed || snapshotChanged) {
+    if (changed || snapshotChanged || executableDetectionChanged) {
       await _save();
     }
     return db.games.where((x) => x.source.kind == GameSourceKind.steam).length;

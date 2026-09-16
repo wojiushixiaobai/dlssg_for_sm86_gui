@@ -32,7 +32,10 @@ Mode=Bundled
 CacheDirectory=
 ''';
 
-Uint8List _steamAppInfoLaunchFixture() {
+Uint8List _steamAppInfoLaunchFixture({
+  String windowsExecutable =
+      r'Spacewar\Binaries\Win64\Spacewar-Win64-Shipping.exe',
+}) {
   // appinfo.vdf v41 uses a shared string table for every binary VDF key.
   final keys = <String>[
     'config',
@@ -72,10 +75,7 @@ Uint8List _steamAppInfoLaunchFixture() {
   begin('config');
   begin('launch');
   begin('0');
-  addString(
-    'executable',
-    r'Spacewar\Binaries\Win64\Spacewar-Win64-Shipping.exe',
-  );
+  addString('executable', windowsExecutable);
   addString('type', 'default');
   begin('config');
   addString('oslist', 'windows');
@@ -295,6 +295,211 @@ void main() {
 
       final spacewar = games.singleWhere((game) => game.source.appId == 480);
       expect(spacewar.exePath, configuredExe.path);
+    });
+    test('识别 Engine/Binaries/Win64* 中非标准命名的虚幻游戏 EXE', () async {
+      final root = await Directory.systemTemp.createTemp(
+        'dlssg-steam-unreal-engine-bin-',
+      );
+      addTearDown(() => root.delete(recursive: true));
+      final manifest = File(
+        p.join(root.path, 'steamapps', 'appmanifest_480.acf'),
+      );
+      await manifest.parent.create(recursive: true);
+      await manifest.writeAsString(
+        '"AppState" { "appid" "480" "name" "Yysls" "installdir" "yysls" }',
+      );
+      final gameDir = Directory(
+        p.join(root.path, 'steamapps', 'common', 'yysls'),
+      );
+      await gameDir.create(recursive: true);
+      final launcher = File(p.join(gameDir.path, 'launcher.exe'));
+      await launcher.writeAsString('launcher');
+      final gameExe = File(
+        p.join(
+          gameDir.path,
+          'yysls_medium',
+          'Engine',
+          'Binaries',
+          'Win64rh',
+          'yysls.exe',
+        ),
+      );
+      await gameExe.parent.create(recursive: true);
+      await gameExe.writeAsString('game');
+      await Directory(p.join(gameDir.path, 'yysls_medium', 'Engine', 'Content'))
+          .create();
+      final crashReporter = File(
+        p.join(gameExe.parent.path, 'UniCrashReporter.exe'),
+      );
+      await crashReporter.writeAsString('helper');
+      final patchCopy = File(
+        p.join(
+          gameDir.path,
+          'yysls_medium',
+          'LocalData',
+          'Patch',
+          'BinPatch',
+          'Engine',
+          'Binaries',
+          'Win64rh',
+          'yysls.exe',
+        ),
+      );
+      await patchCopy.parent.create(recursive: true);
+      await patchCopy.writeAsString('patch copy');
+      final appInfo = File(p.join(root.path, 'appcache', 'appinfo.vdf'));
+      await appInfo.parent.create(recursive: true);
+      await appInfo.writeAsBytes(
+        _steamAppInfoLaunchFixture(windowsExecutable: r'launcher.exe'),
+      );
+
+      final games = await SteamScanner(steamPath: () => root.path)
+          .scan(existing: const []);
+
+      final yysls = games.singleWhere((game) => game.source.appId == 480);
+      expect(
+        SteamScanner.isUnrealEngineLaunchExecutable(
+          r'yysls_medium\Engine\Binaries\Win64rh\yysls.exe',
+        ),
+        isTrue,
+      );
+      expect(yysls.exePath, gameExe.path);
+      expect(yysls.exePath, isNot(launcher.path));
+      expect(yysls.exePath, isNot(patchCopy.path));
+    });
+    test('只在识别到 UE 目录组合后扫描 Engine/Binaries/Win64*', () async {
+      final root = await Directory.systemTemp.createTemp(
+        'dlssg-steam-non-unreal-engine-bin-',
+      );
+      addTearDown(() => root.delete(recursive: true));
+      final manifest = File(
+        p.join(root.path, 'steamapps', 'appmanifest_480.acf'),
+      );
+      await manifest.parent.create(recursive: true);
+      await manifest.writeAsString(
+        '"AppState" { "appid" "480" "name" "Other Game" "installdir" "other-game" }',
+      );
+      final gameDir = Directory(
+        p.join(root.path, 'steamapps', 'common', 'other-game'),
+      );
+      await gameDir.create(recursive: true);
+      final launcher = File(p.join(gameDir.path, 'launcher.exe'));
+      await launcher.writeAsString('launcher');
+      final lookalike = File(
+        p.join(gameDir.path, 'Engine', 'Binaries', 'Win64', 'other-game.exe'),
+      );
+      await lookalike.parent.create(recursive: true);
+      await lookalike.writeAsString('not a UE installation');
+      final appInfo = File(p.join(root.path, 'appcache', 'appinfo.vdf'));
+      await appInfo.parent.create(recursive: true);
+      await appInfo.writeAsBytes(
+        _steamAppInfoLaunchFixture(windowsExecutable: r'launcher.exe'),
+      );
+
+      final games = await SteamScanner(steamPath: () => root.path)
+          .scan(existing: const []);
+
+      expect(
+        games.singleWhere((game) => game.source.appId == 480).exePath,
+        launcher.path,
+      );
+    });
+    test('忽略剑星 Engine 目录中的 Unreal CEF 子进程', () async {
+      final root = await Directory.systemTemp.createTemp(
+        'dlssg-steam-stellar-blade-',
+      );
+      addTearDown(() => root.delete(recursive: true));
+      final manifest = File(
+        p.join(root.path, 'steamapps', 'appmanifest_3489700.acf'),
+      );
+      await manifest.parent.create(recursive: true);
+      await manifest.writeAsString(
+        '"AppState" { "appid" "3489700" "name" "Stellar Blade" "installdir" "StellarBlade" }',
+      );
+      final gameDir = Directory(
+        p.join(root.path, 'steamapps', 'common', 'StellarBlade'),
+      );
+      await gameDir.create(recursive: true);
+      final launcher = File(p.join(gameDir.path, 'SB.exe'));
+      await launcher.writeAsString('launcher');
+      final cefProcess = File(
+        p.join(
+          gameDir.path,
+          'Engine',
+          'Binaries',
+          'Win64',
+          'UnrealCEFSubProcess.exe',
+        ),
+      );
+      await cefProcess.parent.create(recursive: true);
+      await cefProcess.writeAsString('browser helper');
+      final shippingExe = File(
+        p.join(
+          gameDir.path,
+          'SB',
+          'Binaries',
+          'Win64',
+          'SB-Win64-Shipping.exe',
+        ),
+      );
+      await shippingExe.parent.create(recursive: true);
+      await shippingExe.writeAsString('game');
+      final appInfo = File(p.join(root.path, 'appcache', 'appinfo.vdf'));
+      await appInfo.parent.create(recursive: true);
+      await appInfo.writeAsBytes(
+        _steamAppInfoLaunchFixture(windowsExecutable: r'SB.exe'),
+      );
+
+      final games = await SteamScanner(steamPath: () => root.path)
+          .scan(existing: const []);
+
+      final stellarBlade = games.singleWhere(
+        (game) => game.source.appId == 3489700,
+      );
+      expect(stellarBlade.exePath, shippingExe.path);
+      expect(stellarBlade.exePath, isNot(cefProcess.path));
+    });
+    test('优先识别虚幻引擎游戏 EXE，而非 Steam 配置的启动器', () async {
+      final root = await Directory.systemTemp.createTemp(
+        'dlssg-steam-unreal-exe-',
+      );
+      addTearDown(() => root.delete(recursive: true));
+      final manifest = File(
+        p.join(root.path, 'steamapps', 'appmanifest_480.acf'),
+      );
+      await manifest.parent.create(recursive: true);
+      await manifest.writeAsString(
+        '"AppState" { "appid" "480" "name" "Spacewar" "installdir" "spacewar" }',
+      );
+      final gameDir = Directory(
+        p.join(root.path, 'steamapps', 'common', 'spacewar'),
+      );
+      await gameDir.create(recursive: true);
+      final launcher = File(p.join(gameDir.path, 'SpacewarLauncher.exe'));
+      await launcher.writeAsString('launcher');
+      final unrealExe = File(
+        p.join(
+          gameDir.path,
+          'Spacewar',
+          'Binaries',
+          'Win64',
+          'Spacewar-Win64-Shipping.exe',
+        ),
+      );
+      await unrealExe.parent.create(recursive: true);
+      await unrealExe.writeAsString('game');
+      final appInfo = File(p.join(root.path, 'appcache', 'appinfo.vdf'));
+      await appInfo.parent.create(recursive: true);
+      await appInfo.writeAsBytes(
+        _steamAppInfoLaunchFixture(windowsExecutable: r'SpacewarLauncher.exe'),
+      );
+
+      final games = await SteamScanner(steamPath: () => root.path)
+          .scan(existing: const []);
+
+      final spacewar = games.singleWhere((game) => game.source.appId == 480);
+      expect(spacewar.exePath, unrealExe.path);
+      expect(spacewar.exePath, isNot(launcher.path));
     });
     test('忽略 Steam 安装目录自带的应用库', () async {
       final root = await Directory.systemTemp.createTemp('dlssg-steam-root-');
@@ -1128,6 +1333,24 @@ void main() {
     final changedScanner = _CountingSteamScanner({'manifest': 2});
     await ModManager.open(dataDirectory: root, scanner: changedScanner);
     expect(changedScanner.scanCount, 1);
+  });
+
+  test('升级 EXE 识别规则后会重新扫描未变化的 Steam 清单', () async {
+    final root = await Directory.systemTemp.createTemp('dlssg-steam-upgrade-');
+    addTearDown(() => root.delete(recursive: true));
+    final firstScanner = _CountingSteamScanner({'manifest': 1});
+    await ModManager.open(dataDirectory: root, scanner: firstScanner);
+
+    final state = File(p.join(root.path, 'state.json'));
+    final saved =
+        jsonDecode(await state.readAsString()) as Map<String, dynamic>;
+    saved['steam_executable_detection_version'] = 0;
+    await state.writeAsString(jsonEncode(saved));
+
+    final upgradedScanner = _CountingSteamScanner({'manifest': 1});
+    await ModManager.open(dataDirectory: root, scanner: upgradedScanner);
+
+    expect(upgradedScanner.scanCount, 1);
   });
 
   test('移除游戏只删除管理列表记录', () async {
