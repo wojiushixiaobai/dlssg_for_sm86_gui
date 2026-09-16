@@ -22,9 +22,6 @@ Future<String?> steamArtworkUrl(int appId, {http.Client? client}) {
     closeClient: true,
   );
   _storeArtworkRequests[appId] = request;
-  request.then((url) {
-    if (url == null) _storeArtworkRequests.remove(appId);
-  });
   return request;
 }
 
@@ -163,7 +160,7 @@ class SteamScanner {
         }
         final manifest = parseAppManifest(await item.readAsString());
         final appId = int.tryParse(manifest['appid'] ?? '');
-        if (appId == null) continue;
+        if (appId == null || _ignoredAppIds.contains(appId)) continue;
         final name = manifest['name'] ?? 'Steam App $appId';
         final installDir = manifest['installdir'] ?? '';
         final gameFolder = Directory(p.join(apps.path, 'common', installDir));
@@ -321,6 +318,10 @@ class SteamScanner {
     'eosbootstrapper',
     'launcher',
   };
+
+  // Steamworks Common Redistributables is a Steam support component, not a
+  // game that can be managed by this application.
+  static const _ignoredAppIds = {228980};
 
   static Future<Map<int, DateTime>> readLastPlayed(
     List<Directory> roots,

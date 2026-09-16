@@ -1,5 +1,6 @@
 import 'dart:ffi' hide Size;
 import 'dart:io';
+import 'dart:ui' show PointerDeviceKind;
 
 import 'package:ffi/ffi.dart';
 import 'package:file_selector/file_selector.dart';
@@ -634,57 +635,29 @@ class _CardRowState extends State<CardRow> {
   static const _cardHeight = 215.0;
   static const _cardGap = 14.0;
   static const _edgeSpace = 8.0;
-  static const _arrowClearance = 58.0;
 
   final controller = ScrollController();
-  bool showPrevious = false;
-  bool showNext = false;
   int? hoveredIndex;
 
   @override
   void initState() {
     super.initState();
-    showNext = widget.games.length > 1;
-    controller.addListener(_updateArrowVisibility);
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) => _updateArrowVisibility(),
-    );
+    controller.addListener(_clearHoveredCardOnScroll);
   }
 
   @override
   void dispose() {
-    controller.removeListener(_updateArrowVisibility);
+    controller.removeListener(_clearHoveredCardOnScroll);
     controller.dispose();
     super.dispose();
   }
 
-  void _updateArrowVisibility() {
-    if (!controller.hasClients) return;
-    final previous = controller.offset > 1;
-    final next = controller.offset < controller.position.maxScrollExtent - 1;
-    if (previous != showPrevious || next != showNext) {
-      setState(() {
-        showPrevious = previous;
-        showNext = next;
-      });
-    }
-  }
-
-  void move(double amount) {
-    if (!controller.hasClients) return;
-    controller.animateTo(
-      (controller.offset + amount).clamp(
-        0,
-        controller.position.maxScrollExtent,
-      ),
-      duration: const Duration(milliseconds: 240),
-      curve: Curves.easeOutCubic,
-    );
+  void _clearHoveredCardOnScroll() {
+    if (hoveredIndex != null) setState(() => hoveredIndex = null);
   }
 
   @override
   Widget build(BuildContext c) {
-    final navigationInset = showPrevious || showNext ? _arrowClearance : 0.0;
     final contentWidth =
         _edgeSpace * 2 +
         widget.games.length * _cardWidth +
@@ -717,8 +690,15 @@ class _CardRowState extends State<CardRow> {
       child: Stack(
         children: [
           Positioned.fill(
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: navigationInset),
+            child: ScrollConfiguration(
+              behavior: const MaterialScrollBehavior().copyWith(
+                dragDevices: const {
+                  PointerDeviceKind.touch,
+                  PointerDeviceKind.mouse,
+                  PointerDeviceKind.stylus,
+                  PointerDeviceKind.trackpad,
+                },
+              ),
               child: SingleChildScrollView(
                 controller: controller,
                 scrollDirection: Axis.horizontal,
@@ -737,42 +717,10 @@ class _CardRowState extends State<CardRow> {
               ),
             ),
           ),
-          if (showPrevious)
-            Align(
-              alignment: Alignment.centerLeft,
-              child: _LibraryArrow(Icons.chevron_left, () => move(-560)),
-            ),
-          if (showNext)
-            Align(
-              alignment: Alignment.centerRight,
-              child: _LibraryArrow(Icons.chevron_right, () => move(560)),
-            ),
         ],
       ),
     );
   }
-}
-
-class _LibraryArrow extends StatelessWidget {
-  const _LibraryArrow(this.icon, this.press);
-  final IconData icon;
-  final VoidCallback press;
-
-  @override
-  Widget build(BuildContext c) => SizedBox(
-    width: 50,
-    height: 50,
-    child: IconButton(
-      onPressed: press,
-      icon: Icon(icon, size: 30),
-      color: Colors.white70,
-      style: IconButton.styleFrom(
-        backgroundColor: const Color(0xdd151515),
-        side: const BorderSide(color: Color(0xff707070)),
-        shape: const CircleBorder(),
-      ),
-    ),
-  );
 }
 
 class GameCard extends StatefulWidget {
@@ -2311,6 +2259,8 @@ class SteamArtwork extends StatefulWidget {
 class _SteamArtworkState extends State<SteamArtwork> {
   late List<_ArtworkSource> _sources;
   var _sourceIndex = 0;
+  var _usingLocalSources = false;
+  var _loadingRemoteSource = false;
 
   @override
   void initState() {
@@ -2329,23 +2279,41 @@ class _SteamArtworkState extends State<SteamArtwork> {
   void _resetSources() {
     _sources = _artworkSources(widget.appId);
     _sourceIndex = 0;
-    if (!_sources.any((source) => source.local)) {
-      _loadStoreArtwork(widget.appId);
-    }
+    _usingLocalSources = _sources.isNotEmpty;
+    _loadingRemoteSource = false;
+    if (!_usingLocalSources) _loadStoreArtwork(widget.appId);
   }
 
   Future<void> _loadStoreArtwork(int appId) async {
+    if (_loadingRemoteSource) return;
+    _loadingRemoteSource = true;
     final url = await steamArtworkUrl(appId);
-    if (!mounted || widget.appId != appId || url == null) return;
-    final existing = _sources.indexWhere((source) => source.value == url);
-    if (existing >= 0) return;
+    if (!mounted || widget.appId != appId) return;
     setState(() {
-      _sources.add(_ArtworkSource.network(url));
+      // Steam's appdetails endpoint returns the current, sometimes hash-based,
+      // URL. Prefer it over the legacy CDN patterns below.
+      _sources = url == null
+          ? steamArtworkUrls(appId)
+                .map(_ArtworkSource.network)
+                .toList(growable: false)
+          : [
+              _ArtworkSource.network(url),
+              for (final fallback in steamArtworkUrls(appId))
+                if (fallback != url) _ArtworkSource.network(fallback),
+            ];
+      _sourceIndex = 0;
+      _usingLocalSources = false;
+      _loadingRemoteSource = false;
     });
   }
 
   void _tryNextSource() {
-    if (_sourceIndex >= _sources.length - 1) return;
+    if (_sourceIndex >= _sources.length - 1) {
+      // A corrupt or disappearing local Steam cache file should still have a
+      // remote fallback, but only after every local candidate has failed.
+      if (_usingLocalSources) _loadStoreArtwork(widget.appId);
+      return;
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && _sourceIndex < _sources.length - 1) {
         setState(() => _sourceIndex++);
@@ -2361,6 +2329,7 @@ class _SteamArtworkState extends State<SteamArtwork> {
         ? Image.file(
             File(source.value),
             fit: widget.fit,
+            gaplessPlayback: true,
             errorBuilder: (_, _, _) {
               _tryNextSource();
               return widget.fallback;
@@ -2369,6 +2338,7 @@ class _SteamArtworkState extends State<SteamArtwork> {
         : Image.network(
             source.value,
             fit: widget.fit,
+            gaplessPlayback: true,
             errorBuilder: (_, _, _) {
               _tryNextSource();
               return widget.fallback;
@@ -2386,6 +2356,15 @@ class _ArtworkSource {
 }
 
 List<_ArtworkSource> _artworkSources(int appId) {
+  return _artworkSourcesCache.putIfAbsent(
+    appId,
+    () => List.unmodifiable(_findLocalArtworkSources(appId)),
+  );
+}
+
+final _artworkSourcesCache = <int, List<_ArtworkSource>>{};
+
+List<_ArtworkSource> _findLocalArtworkSources(int appId) {
   final sources = <_ArtworkSource>[];
   final seenLocalPaths = <String>{};
 
@@ -2430,9 +2409,6 @@ List<_ArtworkSource> _artworkSources(int appId) {
     ]) {
       addLocal(p.join(cachePath, name));
     }
-  }
-  for (final url in steamArtworkUrls(appId)) {
-    sources.add(_ArtworkSource.network(url));
   }
   return sources;
 }

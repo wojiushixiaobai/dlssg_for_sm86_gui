@@ -40,7 +40,7 @@ void main() {
     expect(cards.first.game.game.id, newer.id);
   });
 
-  testWidgets('游戏库切换时仅显示可用方向的居中箭头', (tester) async {
+  testWidgets('游戏库支持鼠标横向拖动', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(body: CardRow(List.generate(6, _gameView), _ignoreGame)),
@@ -48,16 +48,82 @@ void main() {
     );
 
     expect(find.byIcon(Icons.chevron_left), findsNothing);
-
-    await tester.tap(find.byIcon(Icons.chevron_right));
-    await tester.pumpAndSettle();
-
-    expect(find.byIcon(Icons.chevron_left), findsOneWidget);
-
-    await tester.tap(find.byIcon(Icons.chevron_right));
-    await tester.pumpAndSettle();
-
     expect(find.byIcon(Icons.chevron_right), findsNothing);
+
+    final firstCard = find.byKey(const ValueKey('home-game-game-1'));
+    final initialPosition = tester.getTopLeft(firstCard);
+    final mouse = await tester.startGesture(
+      tester.getCenter(firstCard),
+      kind: PointerDeviceKind.mouse,
+    );
+    await mouse.moveBy(const Offset(-20, 0));
+    await tester.pump();
+    await mouse.moveBy(const Offset(-140, 0));
+    await tester.pump();
+    await mouse.up();
+
+    expect(tester.getTopLeft(firstCard).dx, lessThan(initialPosition.dx));
+  });
+
+  testWidgets('横向拖动后会打开鼠标所在的游戏卡片', (tester) async {
+    GameView? opened;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CardRow(List.generate(6, _gameView), (game) => opened = game),
+        ),
+      ),
+    );
+
+    final firstCard = find.byKey(const ValueKey('home-game-game-1'));
+    final secondCard = find.byKey(const ValueKey('home-game-game-2'));
+    final mouse = await tester.startGesture(
+      tester.getCenter(firstCard),
+      kind: PointerDeviceKind.mouse,
+    );
+    await mouse.moveBy(const Offset(-20, 0));
+    await tester.pump();
+    await mouse.moveBy(const Offset(-140, 0));
+    await tester.pump();
+    await mouse.up();
+
+    final click = await tester.startGesture(
+      tester.getCenter(secondCard),
+      kind: PointerDeviceKind.mouse,
+    );
+    await click.up();
+    expect(opened?.game.id, 'game-2');
+  });
+
+  testWidgets('横向拖动后新出现的游戏卡片可悬停', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: CardRow(List.generate(6, _gameView), _ignoreGame)),
+      ),
+    );
+
+    final firstCard = find.byKey(const ValueKey('home-game-game-1'));
+    final fifthCard = find.byKey(const ValueKey('home-game-game-5'));
+    final drag = await tester.startGesture(
+      tester.getCenter(firstCard),
+      kind: PointerDeviceKind.mouse,
+    );
+    await drag.moveBy(const Offset(-20, 0));
+    await tester.pump();
+    await drag.moveBy(const Offset(-1200, 0));
+    await tester.pump();
+    await drag.up();
+    await drag.removePointer();
+
+    final hover = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await hover.addPointer(location: const Offset(1, 1));
+    await hover.moveTo(tester.getCenter(fifthCard));
+    await tester.pump();
+
+    final card = tester.widget<GameCard>(
+      find.descendant(of: fifthCard, matching: find.byType(GameCard)),
+    );
+    expect(card.selected, isTrue);
   });
 
   testWidgets('驱动程序页显示未下载锁定状态', (tester) async {

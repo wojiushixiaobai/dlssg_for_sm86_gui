@@ -125,6 +125,22 @@ void main() {
       final spacewar = games.singleWhere((game) => game.source.appId == 480);
       expect(spacewar.exePath, exe.path);
     });
+    test('忽略 Steam 安装目录自带的应用库', () async {
+      final root = await Directory.systemTemp.createTemp('dlssg-steam-root-');
+      addTearDown(() => root.delete(recursive: true));
+      final manifest = File(
+        p.join(root.path, 'steamapps', 'appmanifest_228980.acf'),
+      );
+      await manifest.parent.create(recursive: true);
+      await manifest.writeAsString(
+        '"AppState" { "appid" "228980" "name" "Steamworks Common Redistributables" "installdir" "_CommonRedist" }',
+      );
+
+      final games = await SteamScanner(steamPath: () => root.path)
+          .scan(existing: const []);
+
+      expect(games.where((game) => game.source.appId == 228980), isEmpty);
+    });
     test('通过 Steam 元数据读取带哈希的封面 URL', () async {
       final url = await steamArtworkUrl(
         4570720,
