@@ -617,7 +617,7 @@ void main() {
     );
   });
 
-  test('安装默认使用全局配置，游戏自定义配置可恢复为全局', () async {
+  test('安装继承全局配置，游戏自定义配置不受全局更新影响', () async {
     final root = await Directory.systemTemp.createTemp('dlssg-global-config-');
     addTearDown(() => root.delete(recursive: true));
     final manager = await ModManager.open(dataDirectory: root);
@@ -651,13 +651,6 @@ void main() {
       await File(p.join(gameDir.path, 'dlssg_sm86.ini')).readAsString(),
       contains('MaxGeneratedFrames=1'),
     );
-
-    await manager.useGlobalConfigForGame(game.id);
-    expect(
-      await File(p.join(gameDir.path, 'dlssg_sm86.ini')).readAsString(),
-      contains('MaxGeneratedFrames=3'),
-    );
-    expect(manager.view(game).config.kind, ConfigStateKind.global);
   });
 
   test('拒绝覆盖新代理时保留已经安装的旧代理', () async {

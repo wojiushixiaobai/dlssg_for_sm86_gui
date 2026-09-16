@@ -360,10 +360,6 @@ class ModManager {
     await _save();
   }
 
-  Future<void> useGlobalConfigForGame(String id) async {
-    await applyConfigToGame(id);
-  }
-
   Future<GameEntry> addManualGame(String name, String exePath) async {
     final normalized = p.normalize(exePath).toLowerCase();
     for (final game in db.games) {
@@ -390,8 +386,6 @@ class ModManager {
     await _save();
   }
 
-  /// Removes a game from this manager without changing any files in its
-  /// installation directory.
   Future<void> removeGame(String id) async {
     final game = _game(id);
     db.games.remove(game);

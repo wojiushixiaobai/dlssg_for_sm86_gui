@@ -159,7 +159,7 @@ void main() {
     expect(launched, 1);
   });
 
-  testWidgets('未配置驱动的游戏禁用启动按钮', (tester) async {
+  testWidgets('未配置驱动的游戏仍可启动', (tester) async {
     var launched = 0;
     final game = GameView(
       GameEntry(
@@ -185,16 +185,22 @@ void main() {
     final launchButton = tester.widget<TextButton>(
       find.widgetWithText(TextButton, '启动'),
     );
-    expect(launchButton.onPressed, isNull);
+    expect(launchButton.onPressed, isNotNull);
     await tester.tap(find.text('启动'));
-    expect(launched, 0);
+    expect(launched, 1);
   });
 
-  testWidgets('已启动的游戏显示运行中并禁用启动按钮', (tester) async {
+  testWidgets('已启动的游戏仍可再次启动', (tester) async {
+    var launched = 0;
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: GameCard(_gameView(1), () {}, launch: _ignore, running: true),
+          body: GameCard(
+            _gameView(1),
+            () {},
+            launch: () => launched++,
+            running: true,
+          ),
         ),
       ),
     );
@@ -207,7 +213,9 @@ void main() {
     final launchButton = tester.widget<TextButton>(
       find.widgetWithText(TextButton, '运行中'),
     );
-    expect(launchButton.onPressed, isNull);
+    expect(launchButton.onPressed, isNotNull);
+    await tester.tap(find.text('运行中'));
+    expect(launched, 1);
   });
 
   testWidgets('长按游戏列表条目会移除游戏', (tester) async {

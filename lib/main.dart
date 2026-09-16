@@ -7,6 +7,8 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:win32/win32.dart';
 
+import 'driver_settings.dart';
+import 'hags.dart';
 import 'manager.dart';
 import 'models.dart';
 import 'steam.dart';
@@ -22,7 +24,7 @@ const _installationGuideUrl = 'https://github.com/sdli1995/dlssg_for_sm86';
 
 const _uiFontFamily = 'Microsoft YaHei UI';
 const _uiFontFallback = <String>['Microsoft YaHei', 'Segoe UI', 'Arial'];
-const _uiEmphasisWeight = FontWeight.w700;
+const _uiEmphasisWeight = FontWeight.w500;
 const _controlButtonShape = RoundedRectangleBorder(
   borderRadius: BorderRadius.all(Radius.circular(6)),
 );
@@ -95,6 +97,28 @@ void _openInstallationGuide() {
   } finally {
     calloc.free(operation);
     calloc.free(url);
+  }
+}
+
+void _openWindowsGraphicsSettings() {
+  if (!Platform.isWindows) return;
+  final operation = 'open'.toNativeUtf16();
+  final target = 'ms-settings:display-advancedgraphics'.toNativeUtf16();
+  try {
+    final result = ShellExecute(
+      0,
+      operation,
+      target,
+      nullptr,
+      nullptr,
+      SW_SHOWNORMAL,
+    );
+    if (result <= 32) {
+      throw StateError('无法打开 Windows 图形设置。');
+    }
+  } finally {
+    calloc.free(operation);
+    calloc.free(target);
   }
 }
 
@@ -175,10 +199,20 @@ class _ShellState extends State<Shell> {
   List<GameView> games = [];
   final runningGameIds = <String>{};
   ManagerInfo? info;
+  var hagsStatus = HardwareAcceleratedGpuSchedulingStatus.unavailable;
+  late final bool _refreshHagsWhenSwitchingGames;
+
   @override
   void initState() {
     super.initState();
+    hagsStatus = readHagsStatus();
+    _refreshHagsWhenSwitchingGames =
+        hagsStatus == HardwareAcceleratedGpuSchedulingStatus.disabled;
     load();
+  }
+
+  void _refreshHagsStatus() {
+    if (_refreshHagsWhenSwitchingGames) hagsStatus = readHagsStatus();
   }
 
   Future<void> load() async {
@@ -300,14 +334,21 @@ class _ShellState extends State<Shell> {
         gameTab: gameTab,
         hasMod: info?.modAvailable == true,
         busy: busy,
-        onTab: (x) => setState(() => gameTab = x),
-        onSelect: (id) => setState(() => selected = id),
+        onTab: (x) => setState(() {
+          gameTab = x;
+          if (x) _refreshHagsStatus();
+        }),
+        onSelect: (id) => setState(() {
+          selected = id;
+          _refreshHagsStatus();
+        }),
         choose: choose,
         remove: removeGame,
         manager: widget.manager,
         act: act,
         launch: launchGame,
         runningGameIds: runningGameIds,
+        hagsStatus: hagsStatus,
       ),
     };
     return Scaffold(
@@ -315,7 +356,10 @@ class _ShellState extends State<Shell> {
         children: [
           NvidiaNavigation(
             selectedIndex: page,
-            onSelected: (index) => setState(() => page = index),
+            onSelected: (index) => setState(() {
+              page = index;
+              if (index == 2) _refreshHagsStatus();
+            }),
           ),
           Expanded(
             child: Column(
@@ -768,9 +812,6 @@ class _GameCardState extends State<GameCard> {
   Widget build(BuildContext c) {
     final game = widget.game;
     final steam = game.game.source.kind == GameSourceKind.steam;
-    final canLaunch =
-        game.target == TargetState.ready &&
-        game.mod.kind == ModStateKind.applied;
     return SizedBox(
       width: 265,
       child: AnimatedScale(
@@ -847,9 +888,7 @@ class _GameCardState extends State<GameCard> {
                                     SizedBox(
                                       width: 106,
                                       child: TextButton(
-                                        onPressed: canLaunch && !widget.running
-                                            ? widget.launch
-                                            : null,
+                                        onPressed: widget.launch,
                                         style: widget.running
                                             ? _runningActionButtonStyle
                                             : TextButton.styleFrom(
@@ -881,7 +920,9 @@ class _GameCardState extends State<GameCard> {
                             game.game.name,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontWeight: FontWeight.bold),
+                            style: const TextStyle(
+                              fontWeight: _uiEmphasisWeight,
+                            ),
                           ),
                           Text(
                             steam
@@ -928,7 +969,7 @@ class Cover extends StatelessWidget {
     child: Center(
       child: Text(
         'DLSSG',
-        style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold),
+        style: TextStyle(fontSize: 30, fontWeight: _uiEmphasisWeight),
       ),
     ),
   );
@@ -1312,6 +1353,7 @@ class Settings extends StatelessWidget {
     required this.act,
     required this.launch,
     required this.runningGameIds,
+    this.hagsStatus = HardwareAcceleratedGpuSchedulingStatus.unavailable,
   });
   final List<GameView> games;
   final GameView? selected;
@@ -1324,6 +1366,7 @@ class Settings extends StatelessWidget {
   final Future<void> Function(Future<void> Function()) act;
   final ValueChanged<GameView> launch;
   final Set<String> runningGameIds;
+  final HardwareAcceleratedGpuSchedulingStatus hagsStatus;
   @override
   Widget build(BuildContext c) => Padding(
     padding: const EdgeInsets.fromLTRB(30, 0, 30, 30),
@@ -1364,6 +1407,7 @@ class Settings extends StatelessWidget {
                         act,
                         launch: launch,
                         running: runningGameIds.contains(selected?.game.id),
+                        hagsStatus: hagsStatus,
                       ),
                     ),
                   ],
@@ -1582,6 +1626,7 @@ class GameSettings extends StatefulWidget {
     this.act, {
     required this.launch,
     required this.running,
+    this.hagsStatus = HardwareAcceleratedGpuSchedulingStatus.unavailable,
     super.key,
   });
   final GameView? view;
@@ -1591,6 +1636,7 @@ class GameSettings extends StatefulWidget {
   final Future<void> Function(Future<void> Function()) act;
   final ValueChanged<GameView> launch;
   final bool running;
+  final HardwareAcceleratedGpuSchedulingStatus hagsStatus;
   @override
   State<GameSettings> createState() => _GameSettingsState();
 }
@@ -1662,13 +1708,6 @@ class _GameSettingsState extends State<GameSettings> {
     await widget.act(() => widget.manager.saveGameConfig(v.game.id, next));
   }
 
-  Future<void> _useGlobalConfig() async {
-    final view = widget.view;
-    if (view == null) return;
-    await widget.act(() => widget.manager.useGlobalConfigForGame(view.game.id));
-    await _loadConfig();
-  }
-
   @override
   Widget build(BuildContext c) {
     final v = widget.view;
@@ -1698,6 +1737,7 @@ class _GameSettingsState extends State<GameSettings> {
             onProxyChanged: v.mod.kind == ModStateKind.applied || widget.busy
                 ? null
                 : (x) => setState(() => proxy = x!),
+            hagsStatus: widget.hagsStatus,
             action: v.mod.kind == ModStateKind.applied
                 ? Row(
                     mainAxisSize: MainAxisSize.min,
@@ -1726,32 +1766,29 @@ class _GameSettingsState extends State<GameSettings> {
                   ),
           ),
           const SizedBox(height: 26),
-          const _ApplicationSettingsTitle(),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-            decoration: BoxDecoration(
-              color: const Color(0xff1d1d1d),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: SetRow(
-              'EXE 文件路径',
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      g.exePath ?? '尚未指定',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
+          MouseRegion(
+            cursor: widget.busy
+                ? SystemMouseCursors.basic
+                : SystemMouseCursors.click,
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: widget.busy ? null : () => widget.choose(g),
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 10,
                   ),
-                  const SizedBox(width: 12),
-                  TextButton(
-                    style: _inlineActionButtonStyle,
-                    onPressed: widget.busy ? null : () => widget.choose(g),
-                    child: const Text('自定义路径'),
+                  decoration: BoxDecoration(
+                    color: const Color(0xff1d1d1d),
+                    borderRadius: BorderRadius.circular(8),
                   ),
-                ],
+                  child: SetRow(
+                    'EXE 路径',
+                    Text(g.exePath ?? '尚未指定', softWrap: true),
+                  ),
+                ),
               ),
             ),
           ),
@@ -1763,31 +1800,12 @@ class _GameSettingsState extends State<GameSettings> {
               padding: EdgeInsets.all(24),
               child: Center(child: CircularProgressIndicator()),
             )
-          else ...[
-            const _DriverSettingsTitle(),
-            const SizedBox(height: 8),
-            SetRow(
-              '配置来源',
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(v.game.hasCustomConfig ? '游戏自定义配置' : '使用全局配置'),
-                  ),
-                  if (v.game.hasCustomConfig && widget.hasMod)
-                    TextButton(
-                      onPressed: canEdit ? _useGlobalConfig : null,
-                      child: const Text('恢复全局配置'),
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 8),
+          else
             _DirectDriverSettings(
               config: config!,
               enabled: canEdit,
               onChanged: _saveConfig,
             ),
-          ],
         ],
       ),
     );
@@ -1829,6 +1847,7 @@ class _GameControlHeader extends StatelessWidget {
     required this.running,
     required this.proxy,
     required this.onProxyChanged,
+    required this.hagsStatus,
     required this.action,
   });
   final GameEntry game;
@@ -1837,6 +1856,7 @@ class _GameControlHeader extends StatelessWidget {
   final bool running;
   final String proxy;
   final ValueChanged<String?>? onProxyChanged;
+  final HardwareAcceleratedGpuSchedulingStatus hagsStatus;
   final Widget action;
 
   @override
@@ -1884,6 +1904,10 @@ class _GameControlHeader extends StatelessWidget {
           ],
         ),
         const Divider(height: 27),
+        if (hagsStatus != HardwareAcceleratedGpuSchedulingStatus.enabled) ...[
+          _HagsWarning(status: hagsStatus),
+          const SizedBox(height: 8),
+        ],
         Row(
           children: [
             Icon(
@@ -1925,33 +1949,6 @@ class _GameControlHeader extends StatelessWidget {
         ),
       ],
     ),
-  );
-}
-
-class _ApplicationSettingsTitle extends StatelessWidget {
-  const _ApplicationSettingsTitle();
-
-  @override
-  Widget build(BuildContext c) => const Text(
-    '应用程序设置',
-    style: TextStyle(fontSize: 19, fontWeight: _uiEmphasisWeight),
-  );
-}
-
-class _DriverSettingsTitle extends StatelessWidget {
-  const _DriverSettingsTitle();
-
-  @override
-  Widget build(BuildContext c) => const Row(
-    children: [
-      Expanded(
-        child: Text(
-          '驱动程序设置',
-          style: TextStyle(fontSize: 19, fontWeight: _uiEmphasisWeight),
-        ),
-      ),
-      Text('修改后自动保存', style: TextStyle(color: Colors.white54)),
-    ],
   );
 }
 
@@ -2001,30 +1998,245 @@ class _DirectDriverSettings extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
       decoration: BoxDecoration(
         color: const Color(0xff1d1d1d),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
         children: [
+          const _DriverSettingsTableHeader(),
           for (final section in config.sections) ...[
             _IniSectionHeader(section.name),
             for (final setting in section.settings)
-              SetRow(
-                setting.key,
-                TextFormField(
-                  key: ValueKey('${section.name}/${setting.key}'),
-                  initialValue: setting.value,
-                  enabled: enabled,
-                  onFieldSubmitted: (value) => onChanged(
-                    config.withValue(section.name, setting.key, value),
-                  ),
-                  decoration: const InputDecoration(hintText: '按 Enter 保存'),
+              _DriverSettingRow(
+                section: section.name,
+                setting: setting,
+                enabled: enabled,
+                onChanged: (value) => onChanged(
+                  config.withValue(section.name, setting.key, value),
                 ),
               ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+class _DriverSettingsTableHeader extends StatelessWidget {
+  const _DriverSettingsTableHeader();
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+    decoration: const BoxDecoration(
+      color: _nvidiaHeader,
+      borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
+    ),
+    child: const Row(
+      children: [
+        Expanded(
+          flex: 6,
+          child: Text(
+            'Key',
+            style: TextStyle(fontSize: 18, fontWeight: _uiEmphasisWeight),
+          ),
+        ),
+        Expanded(
+          flex: 5,
+          child: Text(
+            'Value',
+            style: TextStyle(fontSize: 18, fontWeight: _uiEmphasisWeight),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _DriverSettingRow extends StatefulWidget {
+  const _DriverSettingRow({
+    required this.section,
+    required this.setting,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final String section;
+  final IniSetting setting;
+  final bool enabled;
+  final ValueChanged<String> onChanged;
+
+  @override
+  State<_DriverSettingRow> createState() => _DriverSettingRowState();
+}
+
+class _DriverSettingRowState extends State<_DriverSettingRow> {
+  bool hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final definition = driverSettingDefinition(
+      widget.section,
+      widget.setting.key,
+    );
+    return MouseRegion(
+      cursor: MouseCursor.defer,
+      onEnter: (_) => setState(() => hovered = true),
+      onExit: (_) => setState(() => hovered = false),
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 61),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+          decoration: BoxDecoration(
+            color: hovered ? _nvidiaHeader : Colors.transparent,
+            border: const Border(top: BorderSide(color: Color(0xff2b2b2b))),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                flex: 6,
+                child: Row(
+                  children: [
+                    Flexible(child: Text(widget.setting.key)),
+                    if (definition != null) ...[
+                      const SizedBox(width: 6),
+                      _DriverSettingInfo(
+                        section: widget.section,
+                        settingKey: widget.setting.key,
+                        definition: definition,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                flex: 5,
+                child: _DriverSettingValue(
+                  section: widget.section,
+                  setting: widget.setting,
+                  definition: definition,
+                  enabled: widget.enabled,
+                  onChanged: widget.onChanged,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DriverSettingInfo extends StatelessWidget {
+  const _DriverSettingInfo({
+    required this.section,
+    required this.settingKey,
+    required this.definition,
+  });
+
+  final String section;
+  final String settingKey;
+  final DriverSettingDefinition definition;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 24,
+    height: 24,
+    child: IconButton(
+      tooltip: definition.description,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints.tightFor(width: 24, height: 24),
+      iconSize: 16,
+      color: Colors.white60,
+      mouseCursor: SystemMouseCursors.click,
+      onPressed: () => showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('[$section] $settingKey'),
+          content: Text(
+            '${definition.description}\n\n默认值：${definition.defaultValue.isEmpty ? '留空' : definition.defaultValue}',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('关闭'),
+            ),
+          ],
+        ),
+      ),
+      icon: const Icon(Icons.info_outline),
+    ),
+  );
+}
+
+class _DriverSettingValue extends StatelessWidget {
+  const _DriverSettingValue({
+    required this.section,
+    required this.setting,
+    required this.definition,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final String section;
+  final IniSetting setting;
+  final DriverSettingDefinition? definition;
+  final bool enabled;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    if (definition case final known? when known.choices.isNotEmpty) {
+      return Theme(
+        data: Theme.of(context).copyWith(
+          hoverColor: Colors.transparent,
+          highlightColor: Colors.transparent,
+          splashColor: Colors.transparent,
+        ),
+        child: MouseRegion(
+          cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
+          child: PopupMenuButton<String>(
+            enabled: enabled,
+            tooltip: '',
+            onSelected: onChanged,
+            itemBuilder: (context) => [
+              for (final option in known.choices)
+                PopupMenuItem(value: option, child: Text(option)),
+            ],
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    setting.value.isEmpty ? '未设置' : setting.value,
+                    style: TextStyle(
+                      color: enabled ? _nvidiaText : Colors.white38,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                Icon(
+                  Icons.arrow_drop_down,
+                  color: enabled ? Colors.white60 : Colors.white24,
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+    return TextFormField(
+      key: ValueKey('$section/${setting.key}'),
+      initialValue: setting.value,
+      enabled: enabled,
+      onFieldSubmitted: onChanged,
+      decoration: InputDecoration(
+        isDense: true,
+        hintText: setting.key == 'CacheDirectory' && setting.value.isEmpty
+            ? r'%LOCALAPPDATA%\DlssgSm86\bundles'
+            : '按 Enter 保存',
       ),
     );
   }
@@ -2036,18 +2248,47 @@ class _IniSectionHeader extends StatelessWidget {
   final String section;
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(top: 14, bottom: 2),
-    child: Align(
-      alignment: Alignment.centerLeft,
-      child: Text(
-        '[$section]',
-        style: const TextStyle(
-          color: _nvidiaGreen,
-          fontWeight: _uiEmphasisWeight,
-        ),
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.fromLTRB(20, 16, 20, 5),
+    decoration: const BoxDecoration(
+      border: Border(top: BorderSide(color: Color(0xff2b2b2b))),
+    ),
+    child: Text(
+      '[$section]',
+      style: const TextStyle(
+        color: _nvidiaGreen,
+        fontWeight: _uiEmphasisWeight,
       ),
     ),
+  );
+}
+
+class _HagsWarning extends StatelessWidget {
+  const _HagsWarning({required this.status});
+
+  final HardwareAcceleratedGpuSchedulingStatus status;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [
+      const Icon(Icons.warning_amber_rounded, color: Colors.white54),
+      const SizedBox(width: 10),
+      Expanded(
+        child: Text(switch (status) {
+          HardwareAcceleratedGpuSchedulingStatus.disabled => '硬件加速 GPU 调度未开启',
+          HardwareAcceleratedGpuSchedulingStatus.unavailable =>
+            '无法读取硬件加速 GPU 调度状态',
+          HardwareAcceleratedGpuSchedulingStatus.enabled => '',
+        }),
+      ),
+      const SizedBox(width: 12),
+      TextButton(
+        style: _inlineActionButtonStyle,
+        onPressed: _openWindowsGraphicsSettings,
+        child: const Text('设置'),
+      ),
+    ],
   );
 }
 
