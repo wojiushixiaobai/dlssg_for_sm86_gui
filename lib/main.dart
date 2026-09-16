@@ -65,17 +65,6 @@ final _inlineIconActionButtonStyle = _inlineActionButtonStyle.copyWith(
   padding: const WidgetStatePropertyAll(EdgeInsets.zero),
 );
 
-final _runningActionButtonStyle = ButtonStyle(
-  mouseCursor: _buttonMouseCursor,
-  foregroundColor: const WidgetStatePropertyAll(Colors.black),
-  backgroundColor: const WidgetStatePropertyAll(_nvidiaGreen),
-  overlayColor: const WidgetStatePropertyAll(Colors.transparent),
-  padding: const WidgetStatePropertyAll(
-    EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-  ),
-  shape: const WidgetStatePropertyAll(_controlButtonShape),
-);
-
 bool _isActionHighlighted(Set<WidgetState> states) =>
     states.contains(WidgetState.hovered) ||
     states.contains(WidgetState.focused) ||
@@ -122,6 +111,24 @@ void _openWindowsGraphicsSettings() {
   } finally {
     calloc.free(operation);
     calloc.free(target);
+  }
+}
+
+Future<bool> _openGameExecutableDirectory(String executablePath) async {
+  if (!Platform.isWindows) return false;
+  final executable = File(executablePath);
+  if (!executable.existsSync()) return false;
+  try {
+    // Explorer requires /select, and the target as separate command-line
+    // arguments. ShellExecute can discard that selection argument when it
+    // reuses an existing Explorer window.
+    await Process.start('explorer.exe', [
+      '/select,',
+      executable.absolute.path,
+    ], mode: ProcessStartMode.detached);
+    return true;
+  } on ProcessException {
+    return false;
   }
 }
 
@@ -219,7 +226,6 @@ class _ShellState extends State<Shell> {
   DownloadProgress? downloadProgress;
   bool updateCheckFailed = false;
   List<GameView> games = [];
-  final runningGameIds = <String>{};
   ManagerInfo? info;
   var hagsStatus = HardwareAcceleratedGpuSchedulingStatus.unavailable;
   late final bool _refreshHagsWhenSwitchingGames;
@@ -282,18 +288,55 @@ class _ShellState extends State<Shell> {
   }
 
   Future<void> launchGame(GameView game) async {
-    final launched = await _runAction(
-      () => widget.manager.launchGame(game.game.id),
-    );
-    if (launched && mounted) {
-      setState(() => runningGameIds.add(game.game.id));
+    setState(() {
+      busy = true;
+      note = null;
+      downloadProgress = null;
+    });
+    GameRequiresElevationException? elevationError;
+    try {
+      await widget.manager.launchGame(game.game.id);
+      await load();
+    } on GameRequiresElevationException catch (error) {
+      elevationError = error;
+    } catch (error) {
+      if (mounted) setState(() => note = '操作失败：$error');
+    } finally {
+      if (mounted) setState(() => busy = false);
     }
+
+    if (elevationError == null) return;
+    final directoryOpened = await _openGameExecutableDirectory(
+      elevationError.executablePath,
+    );
+    if (!mounted) return;
+    setState(() {
+      note = directoryOpened
+          ? '游戏需要管理员权限，已定位并选中游戏 EXE，请手动运行。'
+          : '游戏需要管理员权限，请手动运行游戏 EXE。';
+    });
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('需要管理员权限'),
+        content: Text(
+          directoryOpened
+              ? '游戏需要管理员权限，已定位并选中游戏 EXE，请手动运行。'
+              : '游戏需要管理员权限，请手动运行游戏 EXE。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('知道了'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> removeGame(GameView game) async {
     if (busy) return;
     await act(() => widget.manager.removeGame(game.game.id));
-    if (mounted) setState(() => runningGameIds.remove(game.game.id));
   }
 
   Future<void> choose([GameEntry? game]) async {
@@ -330,12 +373,7 @@ class _ShellState extends State<Shell> {
   @override
   Widget build(BuildContext context) {
     final content = switch (page) {
-      0 => Home(
-        games,
-        openGame,
-        launch: launchGame,
-        runningGameIds: runningGameIds,
-      ),
+      0 => Home(games, openGame, launch: launchGame),
       1 => Drivers(
         info,
         latestDriverVersion,
@@ -369,7 +407,6 @@ class _ShellState extends State<Shell> {
         manager: widget.manager,
         act: act,
         launch: launchGame,
-        runningGameIds: runningGameIds,
         hagsStatus: hagsStatus,
       ),
     };
@@ -547,17 +584,10 @@ class _NvidiaNavigationItemState extends State<_NvidiaNavigationItem> {
 }
 
 class Home extends StatelessWidget {
-  const Home(
-    this.games,
-    this.open, {
-    this.launch,
-    this.runningGameIds = const {},
-    super.key,
-  });
+  const Home(this.games, this.open, {this.launch, super.key});
   final List<GameView> games;
   final ValueChanged<GameView> open;
   final ValueChanged<GameView>? launch;
-  final Set<String> runningGameIds;
   @override
   Widget build(BuildContext c) {
     final recent = [
@@ -574,32 +604,14 @@ class Home extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(30, 30, 30, 30),
       children: [
         if (recent.isNotEmpty)
-          Shelf(
-            '最近运行',
-            recent.take(10).toList(),
-            open,
-            launch,
-            runningGameIds: runningGameIds,
-          ),
+          Shelf('最近运行', recent.take(10).toList(), open, launch),
         if (recent.isNotEmpty && (steam.isNotEmpty || manual.isNotEmpty))
           const SizedBox(height: 36),
         if (steam.isNotEmpty)
-          Shelf(
-            'Steam 库',
-            steam.take(10).toList(),
-            open,
-            launch,
-            runningGameIds: runningGameIds,
-          ),
+          Shelf('Steam 库', steam.take(10).toList(), open, launch),
         if (steam.isNotEmpty && manual.isNotEmpty) const SizedBox(height: 36),
         if (manual.isNotEmpty)
-          Shelf(
-            '其他游戏库',
-            manual.take(10).toList(),
-            open,
-            launch,
-            runningGameIds: runningGameIds,
-          ),
+          Shelf('其他游戏库', manual.take(10).toList(), open, launch),
         if (games.isEmpty) const Empty('暂未发现游戏。'),
       ],
     );
@@ -607,19 +619,11 @@ class Home extends StatelessWidget {
 }
 
 class Shelf extends StatelessWidget {
-  const Shelf(
-    this.title,
-    this.games,
-    this.open,
-    this.launch, {
-    this.runningGameIds = const {},
-    super.key,
-  });
+  const Shelf(this.title, this.games, this.open, this.launch, {super.key});
   final String title;
   final List<GameView> games;
   final ValueChanged<GameView> open;
   final ValueChanged<GameView>? launch;
-  final Set<String> runningGameIds;
   @override
   Widget build(BuildContext c) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
@@ -629,23 +633,16 @@ class Shelf extends StatelessWidget {
         style: const TextStyle(fontSize: 20, fontWeight: _uiEmphasisWeight),
       ),
       const SizedBox(height: 11),
-      CardRow(games, open, launch: launch, runningGameIds: runningGameIds),
+      CardRow(games, open, launch: launch),
     ],
   );
 }
 
 class CardRow extends StatefulWidget {
-  const CardRow(
-    this.games,
-    this.open, {
-    this.launch,
-    this.runningGameIds = const {},
-    super.key,
-  });
+  const CardRow(this.games, this.open, {this.launch, super.key});
   final List<GameView> games;
   final ValueChanged<GameView> open;
   final ValueChanged<GameView>? launch;
-  final Set<String> runningGameIds;
 
   @override
   State<CardRow> createState() => _CardRowState();
@@ -699,7 +696,6 @@ class _CardRowState extends State<CardRow> {
             setState(() => hoveredIndex = hovered ? index : null);
           }
         },
-        running: widget.runningGameIds.contains(widget.games[index].game.id),
         launch: widget.launch == null
             ? null
             : () => widget.launch!(widget.games[index]),
@@ -749,7 +745,6 @@ class GameCard extends StatefulWidget {
     this.game,
     this.tap, {
     this.launch,
-    this.running = false,
     this.selected,
     this.onHoverChanged,
     super.key,
@@ -757,7 +752,6 @@ class GameCard extends StatefulWidget {
   final GameView game;
   final VoidCallback tap;
   final VoidCallback? launch;
-  final bool running;
   final bool? selected;
   final ValueChanged<bool>? onHoverChanged;
 
@@ -860,15 +854,14 @@ class _GameCardState extends State<GameCard> {
                                       width: 106,
                                       child: TextButton(
                                         onPressed: widget.launch,
-                                        style: widget.running
-                                            ? _runningActionButtonStyle
-                                            : TextButton.styleFrom(
-                                                foregroundColor: Colors.white,
-                                                disabledForegroundColor:
-                                                    const Color(0xff747474),
-                                              ),
-                                        child: Text(
-                                          widget.running ? '运行中' : '启动',
+                                        style: TextButton.styleFrom(
+                                          foregroundColor: Colors.white,
+                                          disabledForegroundColor: const Color(
+                                            0xff747474,
+                                          ),
+                                        ),
+                                        child: const Text(
+                                          '启动',
                                           style: const TextStyle(
                                             fontWeight: _uiEmphasisWeight,
                                           ),
@@ -1323,7 +1316,6 @@ class Settings extends StatelessWidget {
     required this.manager,
     required this.act,
     required this.launch,
-    required this.runningGameIds,
     this.hagsStatus = HardwareAcceleratedGpuSchedulingStatus.unavailable,
   });
   final List<GameView> games;
@@ -1336,7 +1328,6 @@ class Settings extends StatelessWidget {
   final ModManager manager;
   final Future<void> Function(Future<void> Function()) act;
   final ValueChanged<GameView> launch;
-  final Set<String> runningGameIds;
   final HardwareAcceleratedGpuSchedulingStatus hagsStatus;
   @override
   Widget build(BuildContext c) => Padding(
@@ -1377,7 +1368,6 @@ class Settings extends StatelessWidget {
                         manager,
                         act,
                         launch: launch,
-                        running: runningGameIds.contains(selected?.game.id),
                         hagsStatus: hagsStatus,
                       ),
                     ),
@@ -1602,7 +1592,6 @@ class GameSettings extends StatefulWidget {
     this.manager,
     this.act, {
     required this.launch,
-    required this.running,
     this.hagsStatus = HardwareAcceleratedGpuSchedulingStatus.unavailable,
     super.key,
   });
@@ -1612,7 +1601,6 @@ class GameSettings extends StatefulWidget {
   final ModManager manager;
   final Future<void> Function(Future<void> Function()) act;
   final ValueChanged<GameView> launch;
-  final bool running;
   final HardwareAcceleratedGpuSchedulingStatus hagsStatus;
   @override
   State<GameSettings> createState() => _GameSettingsState();
@@ -1705,11 +1693,9 @@ class _GameSettingsState extends State<GameSettings> {
           _GameControlHeader(
             game: g,
             status: v.mod,
-            onRun:
-                v.target == TargetState.ready && !widget.busy && !widget.running
+            onRun: v.target == TargetState.ready && !widget.busy
                 ? () => widget.launch(v)
                 : null,
-            running: widget.running,
             proxy: proxy,
             onProxyChanged: v.mod.kind == ModStateKind.applied || widget.busy
                 ? null
@@ -1821,7 +1807,6 @@ class _GameControlHeader extends StatelessWidget {
     required this.game,
     required this.status,
     required this.onRun,
-    required this.running,
     required this.proxy,
     required this.onProxyChanged,
     required this.hagsStatus,
@@ -1830,7 +1815,6 @@ class _GameControlHeader extends StatelessWidget {
   final GameEntry game;
   final ModStatus status;
   final VoidCallback? onRun;
-  final bool running;
   final String proxy;
   final ValueChanged<String?>? onProxyChanged;
   final HardwareAcceleratedGpuSchedulingStatus hagsStatus;
@@ -1872,11 +1856,9 @@ class _GameControlHeader extends StatelessWidget {
             ),
             const SizedBox(width: 12),
             TextButton(
-              style: running
-                  ? _runningActionButtonStyle
-                  : _inlineActionButtonStyle,
+              style: _inlineActionButtonStyle,
               onPressed: onRun,
-              child: Text(running ? '运行中' : '启动游戏'),
+              child: const Text('启动游戏'),
             ),
           ],
         ),

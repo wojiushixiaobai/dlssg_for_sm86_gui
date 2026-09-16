@@ -274,17 +274,12 @@ void main() {
     expect(launched, 1);
   });
 
-  testWidgets('已启动的游戏仍可再次启动', (tester) async {
+  testWidgets('游戏卡片始终显示启动操作', (tester) async {
     var launched = 0;
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: GameCard(
-            _gameView(1),
-            () {},
-            launch: () => launched++,
-            running: true,
-          ),
+          body: GameCard(_gameView(1), () {}, launch: () => launched++),
         ),
       ),
     );
@@ -295,10 +290,10 @@ void main() {
     await tester.pump();
 
     final launchButton = tester.widget<TextButton>(
-      find.widgetWithText(TextButton, '运行中'),
+      find.widgetWithText(TextButton, '启动'),
     );
     expect(launchButton.onPressed, isNotNull);
-    await tester.tap(find.text('运行中'));
+    await tester.tap(find.text('启动'));
     expect(launched, 1);
   });
 

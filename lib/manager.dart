@@ -57,6 +57,18 @@ class DownloadProgress {
       : (downloadedBytes / totalBytes!).clamp(0, 1).toDouble();
 }
 
+/// Indicates that Windows refused to start a game because it requires
+/// elevation. The UI should let the user launch it themselves instead of
+/// attempting to elevate the manager process.
+class GameRequiresElevationException implements Exception {
+  const GameRequiresElevationException(this.executablePath);
+
+  final String executablePath;
+
+  @override
+  String toString() => '游戏需要管理员权限，请手动运行游戏 EXE。';
+}
+
 class ModManager {
   ModManager._(
     this.root,
@@ -409,11 +421,20 @@ class ModManager {
     if (game.exePath == null || !File(game.exePath!).existsSync()) {
       throw StateError('请先选择有效的游戏 EXE');
     }
-    await Process.start(
-      game.exePath!,
-      const [],
-      mode: ProcessStartMode.detached,
-    );
+    try {
+      await Process.start(
+        game.exePath!,
+        const [],
+        mode: ProcessStartMode.detached,
+      );
+    } on ProcessException catch (error) {
+      // ERROR_ELEVATION_REQUIRED. Do not use `runas`: the user should choose
+      // how to launch the game from its own directory.
+      if (Platform.isWindows && error.errorCode == 740) {
+        throw GameRequiresElevationException(game.exePath!);
+      }
+      rethrow;
+    }
     game.lastPlayedAt = DateTime.now().toUtc();
     await _save();
   }

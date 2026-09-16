@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 import 'package:http/http.dart' as http;
@@ -426,6 +427,8 @@ class SteamScanner {
         p.join(root.path, 'steamapps', 'libraryfolders.vdf'),
       );
       result[p.normalize(folders.path)] = await _modifiedTime(folders);
+      final appInfo = File(p.join(root.path, 'appcache', 'appinfo.vdf'));
+      result[p.normalize(appInfo.path)] = await _modifiedTime(appInfo);
     }
     for (final library in await _steamLibraries(roots)) {
       final apps = Directory(p.join(library.path, 'steamapps'));
@@ -489,6 +492,11 @@ class SteamScanner {
     final roots = _steamRoots();
     final libraries = await _steamLibraries(roots);
     final lastPlayed = await readLastPlayed(roots);
+    final installedApps = await _installedApps(libraries);
+    final steamLaunchExecutables = await _readSteamLaunchExecutables(
+      roots,
+      installedApps.map((app) => app.appId).toSet(),
+    );
     final result = existing
         .where((game) => game.source.kind == GameSourceKind.manual)
         .map(_copyGame)
@@ -500,6 +508,94 @@ class SteamScanner {
             game.source.appId != null)
           game.source.appId!: _copyGame(game),
     };
+    for (final installed in installedApps) {
+      final appId = installed.appId;
+      final manifest = installed.manifest;
+      final name = manifest['name'] ?? 'Steam App $appId';
+      final installDir = manifest['installdir'] ?? '';
+      final gameFolder = Directory(
+        p.join(installed.library.path, 'steamapps', 'common', installDir),
+      );
+      final scanned = scannedSteam[appId];
+      final previous = scanned ?? existingSteam[appId];
+      final steamDefinedExe = _resolveSteamDefinedExecutable(
+        gameFolder,
+        steamLaunchExecutables[appId] ?? const [],
+      );
+      final detectedExe =
+          steamDefinedExe ??
+          (previous?.exePath != null &&
+                  File(previous!.exePath!).existsSync() &&
+                  _isWithin(previous.exePath!, gameFolder.path)
+              ? previous.exePath
+              : await _findGameExecutable(
+                  gameFolder,
+                  gameName: name,
+                  installDir: installDir,
+                ));
+      if (scanned != null) {
+        scanned.name = name;
+        scanned.source = GameSource.steam(appId, installed.library.path);
+        if (lastPlayed[appId] != null) {
+          scanned.lastPlayedAt = lastPlayed[appId];
+        }
+        if (steamDefinedExe != null ||
+            scanned.exePath == null ||
+            !File(scanned.exePath!).existsSync()) {
+          scanned.exePath = detectedExe;
+        }
+        continue;
+      }
+      final previousSteam = existingSteam.remove(appId);
+      if (previousSteam != null) {
+        previousSteam.name = name;
+        previousSteam.source = GameSource.steam(appId, installed.library.path);
+        if (lastPlayed[appId] != null) {
+          previousSteam.lastPlayedAt = lastPlayed[appId];
+        }
+        if (steamDefinedExe != null ||
+            previousSteam.exePath == null ||
+            !File(previousSteam.exePath!).existsSync()) {
+          previousSteam.exePath = detectedExe;
+        }
+        result.add(previousSteam);
+        scannedSteam[appId] = previousSteam;
+        continue;
+      }
+      final manual = result.indexWhere(
+        (game) =>
+            game.source.kind == GameSourceKind.manual &&
+            game.exePath != null &&
+            _isWithin(game.exePath!, gameFolder.path),
+      );
+      final game = GameEntry(
+        id: _id(),
+        name: name,
+        source: GameSource.steam(appId, installed.library.path),
+        exePath: detectedExe,
+        selectedProxy: 'version.dll',
+        createdAt: DateTime.now().toUtc(),
+        lastPlayedAt: lastPlayed[appId],
+      );
+      if (manual >= 0) {
+        final old = result.removeAt(manual);
+        old.name = name;
+        old.source = game.source;
+        old.lastPlayedAt = game.lastPlayedAt;
+        result.add(old);
+        scannedSteam[appId] = old;
+      } else {
+        result.add(game);
+        scannedSteam[appId] = game;
+      }
+    }
+    return result;
+  }
+
+  Future<List<_InstalledSteamApp>> _installedApps(
+    List<Directory> libraries,
+  ) async {
+    final result = <_InstalledSteamApp>[];
     for (final library in libraries) {
       final apps = Directory(p.join(library.path, 'steamapps'));
       if (!apps.existsSync()) continue;
@@ -512,76 +608,74 @@ class SteamScanner {
         final manifest = parseAppManifest(await item.readAsString());
         final appId = int.tryParse(manifest['appid'] ?? '');
         if (appId == null || _ignoredAppIds.contains(appId)) continue;
-        final name = manifest['name'] ?? 'Steam App $appId';
-        final installDir = manifest['installdir'] ?? '';
-        final gameFolder = Directory(p.join(apps.path, 'common', installDir));
-        final scanned = scannedSteam[appId];
-        final previous = scanned ?? existingSteam[appId];
-        final detectedExe =
-            previous?.exePath != null &&
-                File(previous!.exePath!).existsSync() &&
-                _isWithin(previous.exePath!, gameFolder.path)
-            ? previous.exePath
-            : await _findGameExecutable(
-                gameFolder,
-                gameName: name,
-                installDir: installDir,
-              );
-        if (scanned != null) {
-          scanned.name = name;
-          scanned.source = GameSource.steam(appId, library.path);
-          if (lastPlayed[appId] != null) {
-            scanned.lastPlayedAt = lastPlayed[appId];
-          }
-          if (scanned.exePath == null || !File(scanned.exePath!).existsSync()) {
-            scanned.exePath = detectedExe;
-          }
-          continue;
-        }
-        final previousSteam = existingSteam.remove(appId);
-        if (previousSteam != null) {
-          previousSteam.name = name;
-          previousSteam.source = GameSource.steam(appId, library.path);
-          if (lastPlayed[appId] != null) {
-            previousSteam.lastPlayedAt = lastPlayed[appId];
-          }
-          if (previousSteam.exePath == null ||
-              !File(previousSteam.exePath!).existsSync()) {
-            previousSteam.exePath = detectedExe;
-          }
-          result.add(previousSteam);
-          scannedSteam[appId] = previousSteam;
-          continue;
-        }
-        final manual = result.indexWhere(
-          (game) =>
-              game.source.kind == GameSourceKind.manual &&
-              game.exePath != null &&
-              _isWithin(game.exePath!, gameFolder.path),
-        );
-        final game = GameEntry(
-          id: _id(),
-          name: name,
-          source: GameSource.steam(appId, library.path),
-          exePath: detectedExe,
-          selectedProxy: 'version.dll',
-          createdAt: DateTime.now().toUtc(),
-          lastPlayedAt: lastPlayed[appId],
-        );
-        if (manual >= 0) {
-          final old = result.removeAt(manual);
-          old.name = name;
-          old.source = game.source;
-          old.lastPlayedAt = game.lastPlayedAt;
-          result.add(old);
-          scannedSteam[appId] = old;
-        } else {
-          result.add(game);
-          scannedSteam[appId] = game;
-        }
+        result.add(_InstalledSteamApp(library, appId, manifest));
       }
     }
     return result;
+  }
+
+  Future<Map<int, List<String>>> _readSteamLaunchExecutables(
+    List<Directory> roots,
+    Set<int> appIds,
+  ) async {
+    final result = <int, List<String>>{};
+    if (appIds.isEmpty) return result;
+    for (final root in roots) {
+      final appInfo = File(p.join(root.path, 'appcache', 'appinfo.vdf'));
+      if (!await appInfo.exists()) continue;
+      try {
+        final bytes = await appInfo.readAsBytes();
+        final missingAppIds = appIds
+            .where((id) => !result.containsKey(id))
+            .toSet();
+        result.addAll(
+          _SteamAppInfoReader(bytes).windowsLaunchExecutableMap(missingAppIds),
+        );
+      } on FileSystemException {
+        // Steam may replace appinfo.vdf while its cache is being read.
+      } on FormatException {
+        // Use the regular executable discovery if Steam's binary cache is
+        // incomplete or changes while it is being parsed.
+      }
+    }
+    return result;
+  }
+
+  static String? _resolveSteamDefinedExecutable(
+    Directory gameFolder,
+    List<String> relativeExecutables,
+  ) {
+    // Steam may offer a launcher as the default plus the actual UE Shipping
+    // executable as another Windows launch option. For proxy deployment the
+    // latter is the process that loads the renderer DLLs.
+    final candidates = [
+      ...relativeExecutables.where(isUnrealEngineLaunchExecutable),
+      ...relativeExecutables.where(
+        (executable) => !isUnrealEngineLaunchExecutable(executable),
+      ),
+    ];
+    for (final executable in candidates) {
+      final candidate = p.normalize(
+        p.join(gameFolder.path, executable.trim().replaceAll('/', '\\')),
+      );
+      if (p.extension(candidate).toLowerCase() == '.exe' &&
+          _isWithin(candidate, gameFolder.path) &&
+          File(candidate).existsSync()) {
+        return candidate;
+      }
+    }
+    return null;
+  }
+
+  /// Whether a Steam launch executable explicitly identifies a packaged
+  /// Unreal game binary. appinfo.vdf has no engine field, so this intentionally
+  /// uses only UE's standard Shipping binary layout.
+  static bool isUnrealEngineLaunchExecutable(String executable) {
+    final normalized = executable.replaceAll('/', '\\').toLowerCase();
+    if (normalized.contains(r'\engine\binaries\win64\')) return false;
+    return RegExp(
+      r'(?:^|\\)binaries\\win64\\[^\\]+-win64-(?:shipping|development|test|debug)(?:-[^\\]+)?\.exe$',
+    ).hasMatch(normalized);
   }
 
   static List<String> parseLibraryFolders(String text) {
@@ -608,6 +702,24 @@ class SteamScanner {
     return node.values.map(
       (key, value) => MapEntry(key.toLowerCase(), value is String ? value : ''),
     );
+  }
+
+  /// Reads Steam's Windows launch entries from the binary appinfo cache.
+  ///
+  /// App manifests deliberately do not store an executable. Steam keeps the
+  /// authoritative launch configuration at `config/launch` in appinfo.vdf.
+  /// The returned entries are ordered with the Windows default first.
+  static List<String> parseAppInfoLaunchExecutables(
+    Uint8List bytes,
+    int appId,
+  ) {
+    try {
+      return _SteamAppInfoReader(bytes).windowsLaunchExecutables(appId);
+    } on FormatException {
+      // The Steam client can rewrite this cache while it is being read. The
+      // regular executable discovery remains a safe fallback in that case.
+      return const [];
+    }
   }
 
   static Future<String?> _findGameExecutable(
@@ -725,3 +837,210 @@ class SteamScanner {
 }
 
 GameEntry _copyGame(GameEntry game) => GameEntry.fromJson(game.toJson());
+
+class _InstalledSteamApp {
+  const _InstalledSteamApp(this.library, this.appId, this.manifest);
+
+  final Directory library;
+  final int appId;
+  final Map<String, String> manifest;
+}
+
+class _SteamAppInfoReader {
+  _SteamAppInfoReader(this._bytes) : _data = ByteData.sublistView(_bytes);
+
+  static const _magicV39 = 0x07564427;
+  static const _magicV40 = 0x07564428;
+  static const _magicV41 = 0x07564429;
+
+  final Uint8List _bytes;
+  final ByteData _data;
+  int _position = 0;
+  List<String> _stringTable = const [];
+  var _usesStringTable = false;
+
+  List<String> windowsLaunchExecutables(int targetAppId) {
+    return windowsLaunchExecutableMap({targetAppId})[targetAppId] ?? const [];
+  }
+
+  Map<int, List<String>> windowsLaunchExecutableMap(Set<int> targetAppIds) {
+    if (targetAppIds.isEmpty) return const {};
+    final magic = _readUint32();
+    if (magic != _magicV39 && magic != _magicV40 && magic != _magicV41) {
+      throw const FormatException('Unsupported Steam appinfo format');
+    }
+    _readUint32(); // Steam universe
+    if (magic == _magicV41) {
+      final stringTableOffset = _readInt64();
+      if (stringTableOffset < 0 || stringTableOffset >= _bytes.length) {
+        throw const FormatException(
+          'Invalid Steam appinfo string table offset',
+        );
+      }
+      final entriesPosition = _position;
+      _position = stringTableOffset;
+      final stringCount = _readUint32();
+      _stringTable = List.generate(stringCount, (_) => _readNullString());
+      _usesStringTable = true;
+      _position = entriesPosition;
+    }
+
+    final result = <int, List<String>>{};
+    while (_position + 4 <= _bytes.length) {
+      final appId = _readUint32();
+      if (appId == 0) return result;
+      final size = _readUint32();
+      final entryEnd = _position + size;
+      if (entryEnd > _bytes.length || size < 40) {
+        throw const FormatException('Invalid Steam appinfo entry size');
+      }
+
+      // App entry metadata preceding the binary VDF payload.
+      _skip(4 + 4 + 8 + 20 + 4);
+      if (magic == _magicV40 || magic == _magicV41) _skip(20);
+      if (_position > entryEnd) {
+        throw const FormatException('Invalid Steam appinfo entry metadata');
+      }
+      if (targetAppIds.contains(appId)) {
+        final root = _readObject(entryEnd);
+        final executables = _extractWindowsLaunchExecutables(root);
+        if (executables.isNotEmpty) result[appId] = executables;
+      }
+      _position = entryEnd;
+      if (result.length == targetAppIds.length) return result;
+    }
+    throw const FormatException('Steam appinfo entry is truncated');
+  }
+
+  List<String> _extractWindowsLaunchExecutables(Map<String, Object?> root) {
+    final config = root['config'];
+    if (config is! Map<String, Object?>) return const [];
+    final launch = config['launch'];
+    if (launch is! Map<String, Object?>) return const [];
+
+    final defaults = <String>[];
+    final alternatives = <String>[];
+    for (final entry in launch.values) {
+      if (entry is! Map<String, Object?>) continue;
+      final executable = entry['executable'];
+      if (executable is! String || executable.isEmpty) continue;
+      final entryConfig = entry['config'];
+      final osList = entryConfig is Map<String, Object?>
+          ? entryConfig['oslist']
+          : entry['oslist'];
+      if (osList is String && !_targetsWindows(osList)) continue;
+      final type = entry['type'];
+      if (type is! String || type.isEmpty || type.toLowerCase() == 'default') {
+        defaults.add(executable);
+      } else {
+        alternatives.add(executable);
+      }
+    }
+    return [...defaults, ...alternatives];
+  }
+
+  bool _targetsWindows(String osList) =>
+      osList.toLowerCase().split(RegExp(r'[,;\s]+')).contains('windows');
+
+  Map<String, Object?> _readObject(int entryEnd) {
+    final result = <String, Object?>{};
+    while (_position < entryEnd) {
+      final type = _readByte();
+      if (type == 0x08) return result;
+      final key = _readKey().toLowerCase();
+      switch (type) {
+        case 0x00:
+          result[key] = _readObject(entryEnd);
+          break;
+        case 0x01:
+          result[key] = _readNullString();
+          break;
+        case 0x02:
+        case 0x03:
+        case 0x04:
+        case 0x06:
+          _skip(4);
+          break;
+        case 0x05:
+          _skipWideString();
+          break;
+        case 0x07:
+          _skip(8);
+          break;
+        case 0x09:
+        case 0x0A:
+          // Compiled integer constants carry no payload.
+          break;
+        default:
+          throw FormatException('Unsupported Steam binary VDF type: $type');
+      }
+    }
+    throw const FormatException('Unterminated Steam binary VDF object');
+  }
+
+  String _readKey() {
+    if (!_usesStringTable) return _readNullString();
+    final index = _readUint32();
+    if (index >= _stringTable.length) {
+      throw const FormatException('Invalid Steam appinfo string table index');
+    }
+    return _stringTable[index];
+  }
+
+  int _readByte() {
+    if (_position >= _bytes.length) {
+      throw const FormatException('Unexpected end of Steam appinfo');
+    }
+    return _bytes[_position++];
+  }
+
+  int _readUint32() {
+    _require(4);
+    final value = _data.getUint32(_position, Endian.little);
+    _position += 4;
+    return value;
+  }
+
+  int _readInt64() {
+    _require(8);
+    final value = _data.getInt64(_position, Endian.little);
+    _position += 8;
+    return value;
+  }
+
+  String _readNullString() {
+    final start = _position;
+    while (_position < _bytes.length && _bytes[_position] != 0) {
+      _position++;
+    }
+    if (_position >= _bytes.length) {
+      throw const FormatException('Unterminated Steam appinfo string');
+    }
+    final value = utf8.decode(
+      _bytes.sublist(start, _position),
+      allowMalformed: true,
+    );
+    _position++;
+    return value;
+  }
+
+  void _skipWideString() {
+    while (true) {
+      _require(2);
+      final value = _data.getUint16(_position, Endian.little);
+      _position += 2;
+      if (value == 0) return;
+    }
+  }
+
+  void _skip(int bytes) {
+    _require(bytes);
+    _position += bytes;
+  }
+
+  void _require(int count) {
+    if (_position + count > _bytes.length) {
+      throw const FormatException('Unexpected end of Steam appinfo');
+    }
+  }
+}

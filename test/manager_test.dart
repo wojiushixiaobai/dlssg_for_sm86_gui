@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart';
@@ -30,6 +31,100 @@ Directory=dlssg_sm86\\logs
 Mode=Bundled
 CacheDirectory=
 ''';
+
+Uint8List _steamAppInfoLaunchFixture() {
+  // appinfo.vdf v41 uses a shared string table for every binary VDF key.
+  final keys = <String>[
+    'config',
+    'launch',
+    '0',
+    'executable',
+    'type',
+    'oslist',
+    '1',
+  ];
+  final keyIndexes = {
+    for (var index = 0; index < keys.length; index++) keys[index]: index,
+  };
+  final vdf = BytesBuilder();
+  void addUint32(int value) {
+    vdf.add([
+      value & 0xff,
+      (value >> 8) & 0xff,
+      (value >> 16) & 0xff,
+      (value >> 24) & 0xff,
+    ]);
+  }
+
+  void addKey(String key) => addUint32(keyIndexes[key]!);
+  void addString(String key, String value) {
+    vdf.addByte(0x01);
+    addKey(key);
+    vdf.add(utf8.encode(value));
+    vdf.addByte(0);
+  }
+
+  void begin(String key) {
+    vdf.addByte(0x00);
+    addKey(key);
+  }
+
+  begin('config');
+  begin('launch');
+  begin('0');
+  addString(
+    'executable',
+    r'Spacewar\Binaries\Win64\Spacewar-Win64-Shipping.exe',
+  );
+  addString('type', 'default');
+  begin('config');
+  addString('oslist', 'windows');
+  vdf.addByte(0x08);
+  vdf.addByte(0x08);
+  begin('1');
+  addString('executable', 'bin/LinuxGame');
+  begin('config');
+  addString('oslist', 'linux');
+  vdf.addByte(0x08);
+  vdf.addByte(0x08);
+  vdf.addByte(0x08);
+  vdf.addByte(0x08);
+  vdf.addByte(0x08);
+
+  final payload = vdf.toBytes();
+  final entrySize = 60 + payload.length;
+  final stringTableOffset = 16 + 8 + entrySize + 4;
+  final result = BytesBuilder();
+  void writeUint32(int value) {
+    result.add([
+      value & 0xff,
+      (value >> 8) & 0xff,
+      (value >> 16) & 0xff,
+      (value >> 24) & 0xff,
+    ]);
+  }
+
+  void writeInt64(int value) {
+    for (var shift = 0; shift < 64; shift += 8) {
+      result.addByte((value >> shift) & 0xff);
+    }
+  }
+
+  writeUint32(0x07564429);
+  writeUint32(1);
+  writeInt64(stringTableOffset);
+  writeUint32(480);
+  writeUint32(entrySize);
+  result.add(List<int>.filled(60, 0));
+  result.add(payload);
+  writeUint32(0);
+  writeUint32(keys.length);
+  for (final key in keys) {
+    result.add(utf8.encode(key));
+    result.addByte(0);
+  }
+  return result.toBytes();
+}
 
 class _CountingSteamScanner extends SteamScanner {
   _CountingSteamScanner(this.snapshot) : super(steamPath: () => null);
@@ -141,6 +236,65 @@ void main() {
 
       final spacewar = games.singleWhere((game) => game.source.appId == 480);
       expect(spacewar.exePath, exe.path);
+    });
+    test('按 Steam appinfo 的 Windows 启动配置识别 EXE', () async {
+      final root = await Directory.systemTemp.createTemp(
+        'dlssg-steam-appinfo-',
+      );
+      addTearDown(() => root.delete(recursive: true));
+      expect(
+        SteamScanner.parseAppInfoLaunchExecutables(
+          _steamAppInfoLaunchFixture(),
+          480,
+        ),
+        [r'Spacewar\Binaries\Win64\Spacewar-Win64-Shipping.exe'],
+      );
+      expect(
+        SteamScanner.isUnrealEngineLaunchExecutable(
+          r'Spacewar\Binaries\Win64\Spacewar-Win64-Shipping.exe',
+        ),
+        isTrue,
+      );
+      expect(
+        SteamScanner.isUnrealEngineLaunchExecutable(
+          r'Engine\Binaries\Win64\UnrealEditor.exe',
+        ),
+        isFalse,
+      );
+
+      final manifest = File(
+        p.join(root.path, 'steamapps', 'appmanifest_480.acf'),
+      );
+      await manifest.parent.create(recursive: true);
+      await manifest.writeAsString(
+        '"AppState" { "appid" "480" "name" "Spacewar" "installdir" "spacewar" }',
+      );
+      final configuredExe = File(
+        p.join(
+          root.path,
+          'steamapps',
+          'common',
+          'spacewar',
+          'Spacewar',
+          'Binaries',
+          'Win64',
+          'Spacewar-Win64-Shipping.exe',
+        ),
+      );
+      await configuredExe.parent.create(recursive: true);
+      await configuredExe.writeAsString('exe');
+      await File(
+        p.join(root.path, 'steamapps', 'common', 'spacewar', 'spacewar.exe'),
+      ).writeAsString('heuristic fallback');
+      final appInfo = File(p.join(root.path, 'appcache', 'appinfo.vdf'));
+      await appInfo.parent.create(recursive: true);
+      await appInfo.writeAsBytes(_steamAppInfoLaunchFixture());
+
+      final games = await SteamScanner(steamPath: () => root.path)
+          .scan(existing: const []);
+
+      final spacewar = games.singleWhere((game) => game.source.appId == 480);
+      expect(spacewar.exePath, configuredExe.path);
     });
     test('忽略 Steam 安装目录自带的应用库', () async {
       final root = await Directory.systemTemp.createTemp('dlssg-steam-root-');
