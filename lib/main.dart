@@ -1,11 +1,13 @@
+import 'dart:async';
 import 'dart:ffi' hide Size;
 import 'dart:io';
 import 'dart:ui' show PointerDeviceKind;
+import 'dart:ui' as ui show Image, PixelFormat, decodeImageFromPixels;
 
 import 'package:ffi/ffi.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
-import 'package:path/path.dart' as p;
+import 'package:flutter/services.dart';
 import 'package:win32/win32.dart';
 
 import 'driver_settings.dart';
@@ -129,8 +131,10 @@ Future<void> main() async {
 }
 
 class DlssgApp extends StatelessWidget {
-  const DlssgApp(this.manager, {super.key});
+  DlssgApp(this.manager, {super.key})
+    : artworkCache = SteamArtworkCache(manager.artworkSourcesFile);
   final ModManager manager;
+  final SteamArtworkCache artworkCache;
   @override
   Widget build(BuildContext context) => MaterialApp(
     debugShowCheckedModeBanner: false,
@@ -179,8 +183,25 @@ class DlssgApp extends StatelessWidget {
         style: ButtonStyle(mouseCursor: _buttonMouseCursor),
       ),
     ),
-    home: Shell(manager),
+    home: ArtworkCacheScope(cache: artworkCache, child: Shell(manager)),
   );
+}
+
+class ArtworkCacheScope extends InheritedWidget {
+  const ArtworkCacheScope({
+    required this.cache,
+    required super.child,
+    super.key,
+  });
+
+  final SteamArtworkCache cache;
+
+  static SteamArtworkCache of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<ArtworkCacheScope>()!.cache;
+
+  @override
+  bool updateShouldNotify(ArtworkCacheScope oldWidget) =>
+      cache != oldWidget.cache;
 }
 
 class Shell extends StatefulWidget {
@@ -805,6 +826,8 @@ class _GameCardState extends State<GameCard> {
                           steam
                               ? SteamArtwork(
                                   appId: game.game.source.appId!,
+                                  cache: ArtworkCacheScope.of(context),
+                                  kind: SteamArtworkKind.card,
                                   fit: BoxFit.cover,
                                   fallback: const Cover(),
                                 )
@@ -1482,86 +1505,92 @@ class _GameListState extends State<GameList> {
   }
 
   @override
-  Widget build(BuildContext c) => Card(
-    margin: EdgeInsets.zero,
-    color: const Color(0xff1f1f1f),
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(15, 12, 10, 12),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '程序  ${widget.games.length}',
-                  style: const TextStyle(
-                    fontSize: 17,
-                    fontWeight: _uiEmphasisWeight,
+  Widget build(BuildContext c) {
+    final entries = ordered;
+    return Card(
+      margin: EdgeInsets.zero,
+      color: const Color(0xff1f1f1f),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(15, 12, 10, 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '程序  ${widget.games.length}',
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: _uiEmphasisWeight,
+                    ),
                   ),
                 ),
-              ),
-              PopupMenuButton<GameSort>(
-                tooltip: '排序',
-                initialValue: sort,
-                onSelected: (value) => setState(() => sort = value),
-                style: _inlineIconActionButtonStyle,
-                icon: const Icon(Icons.sort),
-                itemBuilder: (_) => const [
-                  PopupMenuItem(value: GameSort.name, child: Text('按名称排序')),
-                  PopupMenuItem(value: GameSort.newest, child: Text('按最近添加排序')),
-                ],
-              ),
-              TextButton.icon(
-                onPressed: widget.add,
-                icon: const Icon(Icons.add_circle_outline, size: 18),
-                label: const Text('添加游戏'),
-              ),
-            ],
-          ),
-        ),
-        const Divider(height: 1),
-        Expanded(
-          child: widget.games.isEmpty
-              ? const Empty('使用“添加游戏”将其他游戏加入此列表。')
-              : ListView.builder(
-                  itemCount: ordered.length,
-                  itemBuilder: (_, i) {
-                    final x = ordered[i];
-                    return ListTile(
-                      mouseCursor: SystemMouseCursors.click,
-                      selected: x.game.id == widget.selected,
-                      selectedTileColor: const Color(0xff2b3d1c),
-                      leading: GameIcon(x.game),
-                      title: Text(
-                        x.game.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      subtitle: Text(
-                        x.game.source.kind == GameSourceKind.steam
-                            ? 'Steam · ${x.game.source.appId}'
-                            : '手动添加',
-                      ),
-                      trailing: Icon(
-                        x.mod.kind == ModStateKind.applied
-                            ? Icons.check_circle
-                            : Icons.circle_outlined,
-                        color: x.mod.kind == ModStateKind.applied
-                            ? const Color(0xff9dcc3a)
-                            : Colors.white38,
-                        size: 18,
-                      ),
-                      onTap: () => widget.change(x.game.id),
-                      onLongPress: () => widget.remove(x),
-                    );
-                  },
+                PopupMenuButton<GameSort>(
+                  tooltip: '排序',
+                  initialValue: sort,
+                  onSelected: (value) => setState(() => sort = value),
+                  style: _inlineIconActionButtonStyle,
+                  icon: const Icon(Icons.sort),
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(value: GameSort.name, child: Text('按名称排序')),
+                    PopupMenuItem(
+                      value: GameSort.newest,
+                      child: Text('按最近添加排序'),
+                    ),
+                  ],
                 ),
-        ),
-      ],
-    ),
-  );
+                TextButton.icon(
+                  onPressed: widget.add,
+                  icon: const Icon(Icons.add_circle_outline, size: 18),
+                  label: const Text('添加游戏'),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: entries.isEmpty
+                ? const Empty('使用“添加游戏”将其他游戏加入此列表。')
+                : ListView.builder(
+                    itemCount: entries.length,
+                    itemBuilder: (_, i) {
+                      final x = entries[i];
+                      return ListTile(
+                        mouseCursor: SystemMouseCursors.click,
+                        selected: x.game.id == widget.selected,
+                        selectedTileColor: const Color(0xff2b3d1c),
+                        leading: GameIcon(x.game),
+                        title: Text(
+                          x.game.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        subtitle: Text(
+                          x.game.source.kind == GameSourceKind.steam
+                              ? 'Steam · ${x.game.source.appId}'
+                              : '手动添加',
+                        ),
+                        trailing: Icon(
+                          x.mod.kind == ModStateKind.applied
+                              ? Icons.check_circle
+                              : Icons.circle_outlined,
+                          color: x.mod.kind == ModStateKind.applied
+                              ? const Color(0xff9dcc3a)
+                              : Colors.white38,
+                          size: 18,
+                        ),
+                        onTap: () => widget.change(x.game.id),
+                        onLongPress: () => widget.remove(x),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class GameSettings extends StatefulWidget {
@@ -2243,201 +2272,91 @@ class _HagsWarning extends StatelessWidget {
 class SteamArtwork extends StatefulWidget {
   const SteamArtwork({
     required this.appId,
+    required this.cache,
     required this.fallback,
+    required this.kind,
     this.fit = BoxFit.cover,
+    this.alignment = Alignment.center,
     super.key,
   });
 
   final int appId;
+  final SteamArtworkCache cache;
+  final SteamArtworkKind kind;
   final Widget fallback;
   final BoxFit fit;
+  final Alignment alignment;
 
   @override
   State<SteamArtwork> createState() => _SteamArtworkState();
 }
 
 class _SteamArtworkState extends State<SteamArtwork> {
-  late List<_ArtworkSource> _sources;
-  var _sourceIndex = 0;
-  var _usingLocalSources = false;
-  var _loadingRemoteSource = false;
+  late Future<SteamArtworkSource?> _artwork;
+  var _retryingNetworkSource = false;
 
   @override
   void initState() {
     super.initState();
-    _resetSources();
+    _artwork = widget.cache.load(widget.appId, kind: widget.kind);
   }
 
   @override
   void didUpdateWidget(covariant SteamArtwork oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.appId != widget.appId) {
-      _resetSources();
+    if (oldWidget.appId != widget.appId ||
+        oldWidget.cache != widget.cache ||
+        oldWidget.kind != widget.kind) {
+      _artwork = widget.cache.load(widget.appId, kind: widget.kind);
+      _retryingNetworkSource = false;
     }
   }
 
-  void _resetSources() {
-    _sources = _artworkSources(widget.appId);
-    _sourceIndex = 0;
-    _usingLocalSources = _sources.isNotEmpty;
-    _loadingRemoteSource = false;
-    if (!_usingLocalSources) _loadStoreArtwork(widget.appId);
-  }
-
-  Future<void> _loadStoreArtwork(int appId) async {
-    if (_loadingRemoteSource) return;
-    _loadingRemoteSource = true;
-    final url = await steamArtworkUrl(appId);
-    if (!mounted || widget.appId != appId) return;
-    setState(() {
-      // Steam's appdetails endpoint returns the current, sometimes hash-based,
-      // URL. Prefer it over the legacy CDN patterns below.
-      _sources = url == null
-          ? steamArtworkUrls(appId)
-                .map(_ArtworkSource.network)
-                .toList(growable: false)
-          : [
-              _ArtworkSource.network(url),
-              for (final fallback in steamArtworkUrls(appId))
-                if (fallback != url) _ArtworkSource.network(fallback),
-            ];
-      _sourceIndex = 0;
-      _usingLocalSources = false;
-      _loadingRemoteSource = false;
-    });
-  }
-
-  void _tryNextSource() {
-    if (_sourceIndex >= _sources.length - 1) {
-      // A corrupt or disappearing local Steam cache file should still have a
-      // remote fallback, but only after every local candidate has failed.
-      if (_usingLocalSources) _loadStoreArtwork(widget.appId);
-      return;
-    }
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _sourceIndex < _sources.length - 1) {
-        setState(() => _sourceIndex++);
+  void _tryNextNetworkSource(String failedUrl) {
+    if (_retryingNetworkSource) return;
+    _retryingNetworkSource = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final next = await widget.cache.nextNetworkSource(
+        widget.appId,
+        failedUrl,
+        kind: widget.kind,
+      );
+      if (mounted && next != null) {
+        setState(() {
+          _artwork = Future.value(next);
+          _retryingNetworkSource = false;
+        });
       }
     });
   }
 
   @override
-  Widget build(BuildContext context) {
-    if (_sources.isEmpty) return widget.fallback;
-    final source = _sources[_sourceIndex];
-    return source.local
-        ? Image.file(
-            File(source.value),
-            fit: widget.fit,
-            gaplessPlayback: true,
-            errorBuilder: (_, _, _) {
-              _tryNextSource();
-              return widget.fallback;
-            },
-          )
-        : Image.network(
-            source.value,
-            fit: widget.fit,
-            gaplessPlayback: true,
-            errorBuilder: (_, _, _) {
-              _tryNextSource();
-              return widget.fallback;
-            },
-          );
-  }
-}
-
-class _ArtworkSource {
-  const _ArtworkSource.local(this.value) : local = true;
-  const _ArtworkSource.network(this.value) : local = false;
-
-  final String value;
-  final bool local;
-}
-
-List<_ArtworkSource> _artworkSources(int appId) {
-  return _artworkSourcesCache.putIfAbsent(
-    appId,
-    () => List.unmodifiable(_findLocalArtworkSources(appId)),
+  Widget build(BuildContext context) => FutureBuilder<SteamArtworkSource?>(
+    future: _artwork,
+    builder: (_, snapshot) {
+      final source = snapshot.data;
+      if (source == null) return widget.fallback;
+      return source.local
+          ? Image.file(
+              File(source.value),
+              fit: widget.fit,
+              alignment: widget.alignment,
+              gaplessPlayback: true,
+              errorBuilder: (_, _, _) => widget.fallback,
+            )
+          : Image.network(
+              source.value,
+              fit: widget.fit,
+              alignment: widget.alignment,
+              gaplessPlayback: true,
+              errorBuilder: (_, _, _) {
+                _tryNextNetworkSource(source.value);
+                return widget.fallback;
+              },
+            );
+    },
   );
 }
-
-final _artworkSourcesCache = <int, List<_ArtworkSource>>{};
-
-List<_ArtworkSource> _findLocalArtworkSources(int appId) {
-  final sources = <_ArtworkSource>[];
-  final seenLocalPaths = <String>{};
-
-  void addLocal(String path) {
-    if (File(path).existsSync() && seenLocalPaths.add(p.normalize(path))) {
-      sources.add(_ArtworkSource.local(path));
-    }
-  }
-
-  for (final steamPath in _steamArtworkSteamPaths()) {
-    final cachePath = p.join(steamPath, 'appcache', 'librarycache');
-
-    final appCache = Directory(p.join(cachePath, '$appId'));
-    for (final name in [
-      'header_schinese.jpg',
-      'header_schinese.png',
-      'header.jpg',
-      'header.png',
-      'library_header.jpg',
-      'library_header.png',
-    ]) {
-      addLocal(p.join(appCache.path, name));
-    }
-    if (appCache.existsSync()) {
-      try {
-        for (final item in appCache.listSync()) {
-          if (item is! Directory) continue;
-          for (final name in ['library_header.jpg', 'library_header.png']) {
-            addLocal(p.join(item.path, name));
-          }
-        }
-      } on FileSystemException {
-        // Steam may update this cache concurrently.
-      }
-    }
-    for (final name in [
-      '${appId}_header.jpg',
-      '${appId}_header.png',
-      '${appId}_library_600x900.jpg',
-      '${appId}_library_600x900.png',
-      '$appId/header.jpg',
-    ]) {
-      addLocal(p.join(cachePath, name));
-    }
-  }
-  return sources;
-}
-
-List<String>? _steamArtworkSteamPathsCache;
-
-List<String> _steamArtworkSteamPaths() {
-  return _steamArtworkSteamPathsCache ??= () {
-    final roots = <String>[];
-    for (final path in [
-      SteamScanner.readSteamPathFromRegistry(),
-      r'C:\Program Files (x86)\Steam',
-      r'C:\Program Files\Steam',
-    ]) {
-      if (path == null || !Directory(path).existsSync()) continue;
-      if (!roots.any((root) => p.equals(root, path))) roots.add(path);
-    }
-    return roots;
-  }();
-}
-
-List<String> steamArtworkUrls(int appId) => [
-  'https://cdn.cloudflare.steamstatic.com/steam/apps/$appId/header.jpg',
-  'https://cdn.akamai.steamstatic.com/steam/apps/$appId/header.jpg',
-  'https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/$appId/header.jpg',
-  'https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/$appId/header.jpg',
-  'https://cdn.cloudflare.steamstatic.com/steam/apps/$appId/capsule_231x87.jpg',
-  'https://cdn.akamai.steamstatic.com/steam/apps/$appId/capsule_231x87.jpg',
-];
 
 class GameIcon extends StatelessWidget {
   const GameIcon(this.game, {this.size = 40, super.key});
@@ -2447,27 +2366,143 @@ class GameIcon extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final appId = game.source.appId;
+    final fallback = appId == null
+        ? const DecoratedBox(
+            decoration: BoxDecoration(color: Color(0xff283129)),
+            child: Icon(Icons.sports_esports, color: Color(0xff9dcc3a)),
+          )
+        : SteamArtwork(
+            appId: appId,
+            cache: ArtworkCacheScope.of(c),
+            kind: SteamArtworkKind.icon,
+            fit: BoxFit.cover,
+            fallback: const DecoratedBox(
+              decoration: BoxDecoration(color: Color(0xff283129)),
+              child: Icon(Icons.sports_esports, color: Color(0xff9dcc3a)),
+            ),
+          );
     return ClipRRect(
       borderRadius: BorderRadius.circular(size * .22),
       child: SizedBox(
         width: size,
         height: size,
-        child: appId == null
-            ? const DecoratedBox(
-                decoration: BoxDecoration(color: Color(0xff283129)),
-                child: Icon(Icons.sports_esports, color: Color(0xff9dcc3a)),
-              )
-            : SteamArtwork(
-                appId: appId,
-                fit: BoxFit.cover,
-                fallback: const DecoratedBox(
-                  decoration: BoxDecoration(color: Color(0xff283129)),
-                  child: Icon(Icons.sports_esports, color: Color(0xff9dcc3a)),
-                ),
-              ),
+        child: ExecutableIcon(executablePath: game.exePath, fallback: fallback),
       ),
     );
   }
+}
+
+class ExecutableIcon extends StatefulWidget {
+  const ExecutableIcon({
+    required this.executablePath,
+    required this.fallback,
+    super.key,
+  });
+
+  final String? executablePath;
+  final Widget fallback;
+
+  @override
+  State<ExecutableIcon> createState() => _ExecutableIconState();
+}
+
+class _ExecutableIconState extends State<ExecutableIcon> {
+  static const _channel = MethodChannel('dlssg/executable-icon');
+  Future<ui.Image?>? _icon;
+  ui.Image? _displayedImage;
+  final _deferredDisposals = <ui.Image>[];
+
+  @override
+  void initState() {
+    super.initState();
+    _replaceIcon();
+  }
+
+  @override
+  void didUpdateWidget(covariant ExecutableIcon oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.executablePath != widget.executablePath) _replaceIcon();
+  }
+
+  void _replaceIcon() {
+    final icon = _load();
+    _icon = icon;
+    unawaited(
+      icon.then<void>((image) {
+        if (!mounted || !identical(_icon, icon)) {
+          image?.dispose();
+          return;
+        }
+        final previous = _displayedImage;
+        _displayedImage = image;
+        if (previous != null && !identical(previous, image)) {
+          // FutureBuilder still renders the previous image until it rebuilds
+          // with this future's result, so release it after that frame.
+          _deferredDisposals.add(previous);
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (_deferredDisposals.remove(previous)) previous.dispose();
+          });
+        }
+      }, onError: (_, _) {}),
+    );
+  }
+
+  @override
+  void dispose() {
+    _displayedImage?.dispose();
+    for (final image in _deferredDisposals) {
+      image.dispose();
+    }
+    _deferredDisposals.clear();
+    super.dispose();
+  }
+
+  Future<ui.Image?> _load() async {
+    final path = widget.executablePath;
+    if (path == null || !File(path).existsSync()) return null;
+    try {
+      final icon = await _channel.invokeMapMethod<String, dynamic>('extract', {
+        'path': path,
+      });
+      final bytes = icon?['pixels'];
+      final size = icon?['size'];
+      if (bytes is! Uint8List ||
+          size is! int ||
+          bytes.length != size * size * 4) {
+        return null;
+      }
+      return await _decodeBgraIcon(bytes, size);
+    } on PlatformException {
+      return null;
+    } on MissingPluginException {
+      return null;
+    }
+  }
+
+  Future<ui.Image> _decodeBgraIcon(Uint8List bytes, int size) {
+    final result = Completer<ui.Image>();
+    ui.decodeImageFromPixels(
+      bytes,
+      size,
+      size,
+      ui.PixelFormat.bgra8888,
+      result.complete,
+      rowBytes: size * 4,
+    );
+    return result.future;
+  }
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<ui.Image?>(
+    future: _icon,
+    builder: (_, snapshot) => snapshot.data == null
+        ? widget.fallback
+        : RawImage(
+            image: snapshot.data,
+            fit: BoxFit.contain,
+            filterQuality: FilterQuality.high,
+          ),
+  );
 }
 
 class SetRow extends StatelessWidget {

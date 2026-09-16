@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:archive/archive_io.dart';
 import 'package:crypto/crypto.dart';
@@ -147,7 +146,7 @@ class ModManager {
     );
     await manager._migrateLegacyGlobalProfile();
     try {
-      await manager.scanSteam();
+      await manager.refreshSteamIfChanged();
       if (!manager.db.steamInitialScanCompleted) {
         manager.db.steamInitialScanCompleted = true;
         await manager._save();
@@ -178,6 +177,8 @@ class ModManager {
     installedVersion: db.installedVersion,
     modAvailable: hasModPackage,
   );
+  File get artworkSourcesFile =>
+      File(p.join(root.path, 'artwork-sources.json'));
   Future<void> _save() => atomicWrite(
     File(p.join(root.path, 'state.json')),
     utf8.encode(db.toJsonText()),
@@ -270,28 +271,39 @@ class ModManager {
       return const ModStatus(ModStateKind.notApplied);
     }
 
-    String? proxy;
-    for (final candidate in proxies) {
-      if (!File(p.join(dir.path, candidate)).existsSync()) continue;
-      if (proxy != null) {
-        return const ModStatus(ModStateKind.applied, version: '未知版本');
-      }
-      proxy = candidate;
+    final recorded = game.install;
+    // A game can contain unrelated DLLs whose names also happen to be proxy
+    // names (for example, NARAKA ships dbghelp.dll). A deployment manages
+    // exactly one proxy, so inspect only the recorded proxy, or the selected
+    // proxy when recognizing an installation created before per-game records.
+    final proxy = (recorded?.proxy ?? game.selectedProxy ?? defaultProxy)
+        .toLowerCase();
+    if (!proxies.contains(proxy)) {
+      return const ModStatus(ModStateKind.notApplied);
     }
-    if (proxy == null) return const ModStatus(ModStateKind.notApplied);
+    final installed = File(p.join(dir.path, proxy));
+    if (!installed.existsSync()) {
+      return const ModStatus(ModStateKind.notApplied);
+    }
 
-    var version = '未知版本';
-    final hash = _cachedSha256(File(p.join(dir.path, proxy))).toLowerCase();
-    final packaged = _modDll(proxy);
-    final currentHash = packaged.existsSync()
-        ? _cachedSha256(packaged).toLowerCase()
-        : null;
-    if (game.install?.dllSha256.toLowerCase() == hash) {
-      version = game.install?.version ?? '未知版本';
-    } else if (currentHash == hash) {
-      version = db.installedVersion ?? '本地包';
+    final hash = _cachedSha256(installed).toLowerCase();
+    if (recorded != null && recorded.dllSha256.toLowerCase() == hash) {
+      return ModStatus(
+        ModStateKind.applied,
+        proxy: proxy,
+        version: recorded.version,
+      );
     }
-    return ModStatus(ModStateKind.applied, proxy: proxy, version: version);
+    final packaged = _modDll(proxy);
+    if (packaged.existsSync() &&
+        _cachedSha256(packaged).toLowerCase() == hash) {
+      return ModStatus(
+        ModStateKind.applied,
+        proxy: proxy,
+        version: db.installedVersion ?? '本地包',
+      );
+    }
+    return ModStatus(ModStateKind.applied, proxy: proxy, version: '未知版本');
   }
 
   ConfigStatus _configState(GameEntry game) {
@@ -428,12 +440,14 @@ class ModManager {
     final old = game.install?.proxy;
     final target = File(p.join(dir.path, desired));
     final hadTarget = await target.exists();
-    final detected = _modState(game);
-    final updatingDetectedDriver =
-        detected.kind == ModStateKind.applied && detected.proxy == desired;
-    // If the INI is absent, the game is not installed by definition.  Backup
-    // any target DLL even when stale state metadata happens to match it.
-    final needsBackup = hadTarget && !updatingDetectedDriver;
+    // dlssg_sm86.ini is the deployment marker. If it is already present, the
+    // proxy has been deployed before and must not be backed up again. Without
+    // that marker, preserve the first DLL seen for each proxy; never replace
+    // an existing original backup during later installs.
+    final hasDeploymentIni = await File(p.join(dir.path, 'dlssg_sm86.ini'))
+        .exists();
+    final hasBackup = await _backupFile(game, desired).exists();
+    final needsBackup = hadTarget && !hasDeploymentIni && !hasBackup;
     if (needsBackup) {
       if (game.source.kind == GameSourceKind.manual && !confirmOverwrite) {
         throw StateError('目标 DLL 不是已知 DLSSG 文件。确认后将保存其原始副本并覆盖。');
@@ -597,8 +611,24 @@ class ModManager {
     game.backups.removeWhere((b) => b.proxy == proxy);
   }
 
-  Future<int> scanSteam() async {
+  Future<int> refreshSteamIfChanged() async {
+    final snapshot = await scanner.manifestModificationTimes();
+    if (_sameModificationTimes(db.steamManifestModificationTimes, snapshot)) {
+      return db.games
+          .where((x) => x.source.kind == GameSourceKind.steam)
+          .length;
+    }
+    return scanSteam(snapshot: snapshot);
+  }
+
+  Future<int> scanSteam({Map<String, int>? snapshot}) async {
     final games = await scanner.scan(existing: db.games);
+    final modificationTimes =
+        snapshot ?? await scanner.manifestModificationTimes();
+    final snapshotChanged = !_sameModificationTimes(
+      db.steamManifestModificationTimes,
+      modificationTimes,
+    );
     final changed =
         jsonEncode(games.map((game) => game.toJson()).toList()) !=
         jsonEncode(db.games.map((game) => game.toJson()).toList());
@@ -608,10 +638,26 @@ class ModManager {
         installedVersion: db.installedVersion,
         legacyGlobalProfile: db.legacyGlobalProfile,
         steamInitialScanCompleted: db.steamInitialScanCompleted,
+        steamManifestModificationTimes: modificationTimes,
       );
+    } else {
+      db.steamManifestModificationTimes = Map.unmodifiable(modificationTimes);
+    }
+    if (changed || snapshotChanged) {
       await _save();
     }
     return db.games.where((x) => x.source.kind == GameSourceKind.steam).length;
+  }
+
+  static bool _sameModificationTimes(
+    Map<String, int>? previous,
+    Map<String, int> current,
+  ) {
+    if (previous == null || previous.length != current.length) return false;
+    for (final entry in current.entries) {
+      if (previous[entry.key] != entry.value) return false;
+    }
+    return true;
   }
 
   Future<String> latestDriverVersion() async =>
@@ -650,17 +696,14 @@ class ModManager {
     final legacyArchiveFile = File(
       p.join(releaseDirectory.path, modArchiveName),
     );
-    List<int> archiveBytes;
+    await archiveDirectory.create(recursive: true);
     if (await archiveFile.exists()) {
-      archiveBytes = await archiveFile.readAsBytes();
     } else if (await previousCacheArchive.exists() &&
         await previousCacheVersion.exists() &&
         (await previousCacheVersion.readAsString()).trim() == version) {
-      archiveBytes = await previousCacheArchive.readAsBytes();
-      await atomicWrite(archiveFile, archiveBytes);
+      await copyAtomic(previousCacheArchive, archiveFile);
     } else if (previousVersion == version && await legacyArchiveFile.exists()) {
-      archiveBytes = await legacyArchiveFile.readAsBytes();
-      await atomicWrite(archiveFile, archiveBytes);
+      await copyAtomic(legacyArchiveFile, archiveFile);
     } else {
       final request = http.Request('GET', release.archiveUrl)
         ..headers['User-Agent'] = 'DLSSG-SM86-Manager';
@@ -672,7 +715,11 @@ class ModManager {
       }
       final totalBytes = download.contentLength;
       var downloadedBytes = 0;
-      final buffer = BytesBuilder(copy: false);
+      final temporaryArchive = File(
+        '${archiveFile.path}.${_uuid.v4()}.download',
+      );
+      final sink = temporaryArchive.openWrite();
+      var sinkClosed = false;
       onProgress?.call(
         DownloadProgress(
           phase: DownloadPhase.downloading,
@@ -680,43 +727,89 @@ class ModManager {
           totalBytes: totalBytes,
         ),
       );
-      await for (final chunk in download.stream) {
-        buffer.add(chunk);
-        downloadedBytes += chunk.length;
-        onProgress?.call(
-          DownloadProgress(
-            phase: DownloadPhase.downloading,
-            downloadedBytes: downloadedBytes,
-            totalBytes: totalBytes,
-          ),
+      try {
+        await sink.addStream(
+          download.stream.map((chunk) {
+            downloadedBytes += chunk.length;
+            onProgress?.call(
+              DownloadProgress(
+                phase: DownloadPhase.downloading,
+                downloadedBytes: downloadedBytes,
+                totalBytes: totalBytes,
+              ),
+            );
+            return chunk;
+          }),
         );
+        await sink.flush();
+        await sink.close();
+        sinkClosed = true;
+        await _replaceFileAtomically(temporaryArchive, archiveFile);
+      } catch (_) {
+        if (!sinkClosed) {
+          try {
+            await sink.close();
+          } catch (_) {}
+        }
+        try {
+          if (await temporaryArchive.exists()) await temporaryArchive.delete();
+        } catch (_) {}
+        rethrow;
       }
-      archiveBytes = buffer.takeBytes();
-      await atomicWrite(archiveFile, archiveBytes);
     }
+    final archiveSize = await archiveFile.length();
     onProgress?.call(
       DownloadProgress(
         phase: DownloadPhase.verifying,
-        downloadedBytes: archiveBytes.length,
-        totalBytes: archiveBytes.length,
+        downloadedBytes: archiveSize,
+        totalBytes: archiveSize,
       ),
     );
     if (await releaseDirectory.exists()) {
       await releaseDirectory.delete(recursive: true);
     }
     final stage = Directory(p.join(releaseRoot.path, '.stage-${_uuid.v4()}'));
+    final temporaryTar = File(
+      p.join(releaseRoot.path, '.archive-${_uuid.v4()}.tar'),
+    );
     await stage.create(recursive: true);
     try {
-      final archive = TarDecoder().decodeBytes(
-        GZipDecoder().decodeBytes(archiveBytes, verify: true),
-        verify: true,
-      );
-      for (final item in archive) {
-        final relative = _upstreamArchivePath(item.name);
-        if (!item.isFile || relative == null) continue;
-        final target = File(p.join(stage.path, relative));
-        await target.parent.create(recursive: true);
-        await target.writeAsBytes(item.content as List<int>, flush: true);
+      final compressedInput = InputFileStream(archiveFile.path);
+      final tarOutput = OutputFileStream(temporaryTar.path);
+      try {
+        final valid = GZipDecoder().decodeStream(
+          compressedInput,
+          tarOutput,
+          verify: true,
+        );
+        if (!valid) throw StateError('下载的 tar.gz 文件不完整或已损坏。');
+      } finally {
+        await compressedInput.close();
+        await tarOutput.close();
+      }
+
+      final tarInput = InputFileStream(temporaryTar.path);
+      Archive? archive;
+      try {
+        archive = TarDecoder().decodeStream(tarInput, verify: true);
+        for (final item in archive) {
+          final relative = _upstreamArchivePath(item.name);
+          if (!item.isFile || relative == null) continue;
+          final target = File(p.join(stage.path, relative));
+          await target.parent.create(recursive: true);
+          final output = OutputFileStream(target.path);
+          try {
+            item.writeContent(output);
+          } finally {
+            await output.close();
+          }
+        }
+      } finally {
+        if (archive != null) {
+          await archive.clear();
+        } else {
+          await tarInput.close();
+        }
       }
       for (final proxy in proxies) {
         final file = _proxyDllIn(stage, proxy);
@@ -734,6 +827,8 @@ class ModManager {
     } catch (_) {
       if (await stage.exists()) await stage.delete(recursive: true);
       rethrow;
+    } finally {
+      if (await temporaryTar.exists()) await temporaryTar.delete();
     }
   }
 }
@@ -777,13 +872,46 @@ String? _upstreamArchivePath(String name) {
   return relative;
 }
 
-String _sha256(List<int> bytes) => sha256.convert(bytes).toString();
-Future<String> sha256File(File file) async => _sha256(await file.readAsBytes());
-String sha256FileSync(File file) => _sha256(file.readAsBytesSync());
+class _DigestSink implements Sink<Digest> {
+  Digest? value;
+
+  @override
+  void add(Digest data) => value = data;
+
+  @override
+  void close() {}
+}
+
+Future<String> sha256File(File file) async =>
+    (await sha256.bind(file.openRead()).first).toString();
+String sha256FileSync(File file) {
+  final output = _DigestSink();
+  final hashSink = sha256.startChunkedConversion(output);
+  final input = file.openSync();
+  try {
+    while (true) {
+      final chunk = input.readSync(64 * 1024);
+      if (chunk.isEmpty) break;
+      hashSink.add(chunk);
+    }
+  } finally {
+    try {
+      hashSink.close();
+    } finally {
+      input.closeSync();
+    }
+  }
+  return output.value!.toString();
+}
+
 Future<void> atomicWrite(File target, List<int> bytes) async {
   await target.parent.create(recursive: true);
   final tmp = File('${target.path}.${const Uuid().v4()}.tmp');
   await tmp.writeAsBytes(bytes, flush: true);
+  await _replaceFileAtomically(tmp, target);
+}
+
+Future<void> _replaceFileAtomically(File tmp, File target) async {
   if (!Platform.isWindows) {
     if (await target.exists()) await target.delete();
     await tmp.rename(target.path);
@@ -808,5 +936,26 @@ Future<void> atomicWrite(File target, List<int> bytes) async {
   }
 }
 
-Future<void> copyAtomic(File from, File to) async =>
-    atomicWrite(to, await from.readAsBytes());
+Future<void> copyAtomic(File from, File to) async {
+  await to.parent.create(recursive: true);
+  final tmp = File('${to.path}.${const Uuid().v4()}.tmp');
+  final sink = tmp.openWrite();
+  var sinkClosed = false;
+  try {
+    await sink.addStream(from.openRead());
+    await sink.flush();
+    await sink.close();
+    sinkClosed = true;
+    await _replaceFileAtomically(tmp, to);
+  } catch (_) {
+    if (!sinkClosed) {
+      try {
+        await sink.close();
+      } catch (_) {}
+    }
+    try {
+      if (await tmp.exists()) await tmp.delete();
+    } catch (_) {}
+    rethrow;
+  }
+}

@@ -230,13 +230,18 @@ class Database {
     this.installedVersion,
     this.legacyGlobalProfile,
     this.steamInitialScanCompleted = false,
-  }) : games = games ?? [];
+    Map<String, int>? steamManifestModificationTimes,
+  }) : games = games ?? [],
+       steamManifestModificationTimes = steamManifestModificationTimes == null
+           ? null
+           : Map.unmodifiable(steamManifestModificationTimes);
   final List<GameEntry> games;
   String? installedVersion;
 
   /// One-time migration source for state files written before global.ini.
   final String? legacyGlobalProfile;
   bool steamInitialScanCompleted;
+  Map<String, int>? steamManifestModificationTimes;
   factory Database.fromJsonText(String text) {
     final m = _map(jsonDecode(text));
     return Database(
@@ -249,13 +254,31 @@ class Database {
           (m['steamInitialScanCompleted'] ??
               m['steam_initial_scan_completed']) ==
           true,
+      steamManifestModificationTimes: _modificationTimes(
+        m['steamManifestModificationTimes'] ??
+            m['steam_manifest_modification_times'],
+      ),
     );
   }
   String toJsonText() => const JsonEncoder.withIndent('  ').convert({
     'games': games.map((g) => g.toJson()).toList(),
     'installed_version': installedVersion,
     'steam_initial_scan_completed': steamInitialScanCompleted,
+    'steam_manifest_modification_times': steamManifestModificationTimes,
   });
+}
+
+Map<String, int>? _modificationTimes(Object? value) {
+  if (value is! Map) return null;
+  final result = <String, int>{};
+  for (final entry in value.entries) {
+    if (entry.key is! String) continue;
+    final time = entry.value is int
+        ? entry.value as int
+        : int.tryParse(entry.value.toString());
+    if (time != null) result[entry.key as String] = time;
+  }
+  return result;
 }
 
 enum TargetState { awaitingExe, ready, missing }

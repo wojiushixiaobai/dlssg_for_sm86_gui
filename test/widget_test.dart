@@ -13,6 +13,24 @@ void main() {
     expect(find.byType(GameCard), findsNothing);
   });
 
+  testWidgets('手动添加的游戏也优先使用 EXE 内嵌图标', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: GameIcon(
+          GameEntry(
+            id: 'manual-game',
+            name: '手动游戏',
+            source: const GameSource.manual(),
+            exePath: r'D:\Games\手动游戏\game.exe',
+          ),
+        ),
+      ),
+    );
+
+    final icon = tester.widget<ExecutableIcon>(find.byType(ExecutableIcon));
+    expect(icon.executablePath, r'D:\Games\手动游戏\game.exe');
+  });
+
   testWidgets('主页按游玩时间显示最近运行游戏', (tester) async {
     final older = _gameView(1).game..lastPlayedAt = DateTime.utc(2026, 1, 1);
     final newer = _gameView(2).game..lastPlayedAt = DateTime.utc(2026, 1, 2);

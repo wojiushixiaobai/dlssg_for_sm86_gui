@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
+import 'package:crypto/crypto.dart';
 import 'package:dlssg_for_sm86_manager/manager.dart';
 import 'package:dlssg_for_sm86_manager/models.dart';
 import 'package:dlssg_for_sm86_manager/steam.dart';
@@ -29,6 +30,22 @@ Directory=dlssg_sm86\\logs
 Mode=Bundled
 CacheDirectory=
 ''';
+
+class _CountingSteamScanner extends SteamScanner {
+  _CountingSteamScanner(this.snapshot) : super(steamPath: () => null);
+
+  Map<String, int> snapshot;
+  var scanCount = 0;
+
+  @override
+  Future<Map<String, int>> manifestModificationTimes() async => snapshot;
+
+  @override
+  Future<List<GameEntry>> scan({required List<GameEntry> existing}) async {
+    scanCount++;
+    return existing;
+  }
+}
 
 ConfigProfile testProfile(
   String name, {
@@ -161,6 +178,203 @@ void main() {
 
       expect(url, contains('/4570720/hash/header.jpg'));
     });
+    test('Steam 清单快照会记录 libraryfolders 和 appmanifest 的修改时间', () async {
+      final root = await Directory.systemTemp.createTemp('dlssg-steam-stamp-');
+      addTearDown(() => root.delete(recursive: true));
+      final folders = File(
+        p.join(root.path, 'steamapps', 'libraryfolders.vdf'),
+      );
+      final manifest = File(
+        p.join(root.path, 'steamapps', 'appmanifest_480.acf'),
+      );
+      await folders.parent.create(recursive: true);
+      await folders.writeAsString('"libraryfolders" {}');
+      await manifest.writeAsString('"AppState" { "appid" "480" }');
+      final scanner = SteamScanner(steamPath: () => root.path);
+
+      final before = await scanner.manifestModificationTimes();
+      await Future<void>.delayed(const Duration(milliseconds: 2));
+      await manifest.writeAsString(
+        '"AppState" { "appid" "480" "StateFlags" "4" }',
+      );
+      final after = await scanner.manifestModificationTimes();
+
+      expect(before[p.normalize(folders.path)], isNotNull);
+      expect(
+        after[p.normalize(manifest.path)],
+        isNot(before[p.normalize(manifest.path)]),
+      );
+    });
+    test('logo 索引复用有效本地路径且不保存图片副本', () async {
+      final root = await Directory.systemTemp.createTemp(
+        'dlssg-artwork-index-',
+      );
+      addTearDown(() => root.delete(recursive: true));
+      final logo = File(p.join(root.path, 'steam-header.jpg'));
+      final index = File(p.join(root.path, 'artwork-sources.json'));
+      await logo.writeAsBytes([1, 2, 3]);
+      await index.writeAsString(jsonEncode({'480': logo.path}));
+
+      final source = await SteamArtworkCache(index).load(480);
+
+      expect(source?.local, isTrue);
+      expect(source?.value, logo.path);
+      expect(
+        await root
+            .list()
+            .where(
+              (item) =>
+                  item is File &&
+                  item.path != logo.path &&
+                  item.path != index.path,
+            )
+            .isEmpty,
+        isTrue,
+      );
+    });
+    test('网络 logo 索引会优先切换为 Steam 本地缓存', () async {
+      final root = await Directory.systemTemp.createTemp(
+        'dlssg-artwork-local-first-',
+      );
+      addTearDown(() => root.delete(recursive: true));
+      final logo = File(p.join(root.path, 'library_600x900.jpg'));
+      final index = File(p.join(root.path, 'artwork-sources.json'));
+      await logo.writeAsBytes([1, 2, 3]);
+      await index.writeAsString(
+        jsonEncode({'480': 'https://cdn.example.invalid/480/header.jpg'}),
+      );
+      final cache = SteamArtworkCache(
+        index,
+        findLocalPaths: (_, _) => [logo.path],
+      );
+
+      final source = await cache.load(480);
+
+      expect(source?.local, isTrue);
+      expect(source?.value, logo.path);
+      expect(jsonDecode(await index.readAsString()), {'480': logo.path});
+    });
+    test('Steam librarycache 识别语言和库封面变体', () async {
+      final root = await Directory.systemTemp.createTemp(
+        'dlssg-artwork-variants-',
+      );
+      addTearDown(() => root.delete(recursive: true));
+      final cache = Directory(
+        p.join(root.path, 'appcache', 'librarycache', '480'),
+      );
+      await cache.create(recursive: true);
+      final localizedHeader = File(
+        p.join(cache.path, 'library_header_schinese.jpg'),
+      );
+      final header = File(p.join(cache.path, 'header_tchinese.png'));
+      await localizedHeader.writeAsBytes([1]);
+      await header.writeAsBytes([2]);
+
+      final paths = findLocalArtworkPaths(
+        480,
+        SteamArtworkKind.card,
+        steamPaths: [root.path],
+      );
+
+      expect(paths, containsAll([localizedHeader.path, header.path]));
+      expect(paths.first, localizedHeader.path);
+    });
+    test('主页和游戏设置优先使用高分辨率 Steam 横幅', () async {
+      final root = await Directory.systemTemp.createTemp(
+        'dlssg-artwork-kinds-',
+      );
+      addTearDown(() => root.delete(recursive: true));
+      final cache = Directory(
+        p.join(root.path, 'appcache', 'librarycache', '480'),
+      );
+      await cache.create(recursive: true);
+      final card = File(p.join(cache.path, 'library_header_schinese.jpg'));
+      final icon = File(p.join(cache.path, 'header_schinese.jpg'));
+      final lowResolutionIcon = File(
+        p.join(cache.path, '7e6eb68967f8d7c39b81ff9525925d6d1f212598.jpg'),
+      );
+      await card.writeAsBytes([1]);
+      await icon.writeAsBytes([2]);
+      await lowResolutionIcon.writeAsBytes([3]);
+
+      final backgrounds = findLocalArtworkPaths(
+        480,
+        SteamArtworkKind.card,
+        steamPaths: [root.path],
+      );
+      final icons = findLocalArtworkPaths(
+        480,
+        SteamArtworkKind.icon,
+        steamPaths: [root.path],
+      );
+
+      expect(backgrounds.first, card.path);
+      expect(icons.first, card.path);
+      expect(icons, isNot(contains(lowResolutionIcon.path)));
+    });
+    test('游戏设置不会复用缓存的 32px Steam 哈希图标', () async {
+      final root = await Directory.systemTemp.createTemp(
+        'dlssg-artwork-low-resolution-cache-',
+      );
+      addTearDown(() => root.delete(recursive: true));
+      final lowResolutionIcon = File(
+        p.join(root.path, '7e6eb68967f8d7c39b81ff9525925d6d1f212598.jpg'),
+      );
+      final header = File(p.join(root.path, 'header.jpg'));
+      final index = File(p.join(root.path, 'artwork-sources.json'));
+      await lowResolutionIcon.writeAsBytes([1]);
+      await header.writeAsBytes([2]);
+      await index.writeAsString(jsonEncode({'480': lowResolutionIcon.path}));
+      final cache = SteamArtworkCache(
+        index,
+        findLocalPaths: (_, _) => [header.path],
+      );
+
+      final source = await cache.load(480, kind: SteamArtworkKind.icon);
+
+      expect(source?.value, header.path);
+      expect(jsonDecode(await index.readAsString()), {'480': header.path});
+    });
+    test('Steam librarycache 忽略非封面辅助图片', () async {
+      final root = await Directory.systemTemp.createTemp(
+        'dlssg-artwork-filter-',
+      );
+      addTearDown(() => root.delete(recursive: true));
+      final cache = Directory(
+        p.join(root.path, 'appcache', 'librarycache', '480'),
+      );
+      await cache.create(recursive: true);
+      final unrelated = File(p.join(cache.path, 'broadcast_background.jpg'));
+      final header = File(p.join(cache.path, 'header.jpg'));
+      await unrelated.writeAsBytes([1]);
+      await header.writeAsBytes([2]);
+
+      final paths = findLocalArtworkPaths(
+        480,
+        SteamArtworkKind.card,
+        steamPaths: [root.path],
+      );
+
+      expect(paths, contains(header.path));
+      expect(paths, isNot(contains(unrelated.path)));
+    });
+    test('并发解析多个 logo 时完整保存来源索引', () async {
+      final root = await Directory.systemTemp.createTemp(
+        'dlssg-artwork-parallel-',
+      );
+      addTearDown(() => root.delete(recursive: true));
+      final index = File(p.join(root.path, 'artwork-sources.json'));
+      final cache = SteamArtworkCache(index);
+
+      await Future.wait([
+        cache.nextNetworkSource(1, 'https://invalid.example/one'),
+        cache.nextNetworkSource(2, 'https://invalid.example/two'),
+        cache.nextNetworkSource(3, 'https://invalid.example/three'),
+      ]);
+
+      final saved = jsonDecode(await index.readAsString()) as Map;
+      expect(saved.keys, containsAll(['1', '2', '3']));
+    });
   });
 
   group('配置和便携文件', () {
@@ -230,6 +444,24 @@ void main() {
       await target.writeAsString('old');
       await atomicWrite(target, utf8.encode('new'));
       expect(await target.readAsString(), 'new');
+    });
+    test('大文件复制和哈希保持内容完整', () async {
+      final root = await Directory.systemTemp.createTemp('dlssg-copy-');
+      addTearDown(() => root.delete(recursive: true));
+      final source = File(p.join(root.path, 'source.bin'));
+      final target = File(p.join(root.path, 'nested', 'target.bin'));
+      final bytes = List<int>.generate(
+        2 * 1024 * 1024 + 17,
+        (index) => index % 251,
+        growable: false,
+      );
+      await source.writeAsBytes(bytes);
+
+      await copyAtomic(source, target);
+
+      expect(await target.readAsBytes(), bytes);
+      expect(await sha256File(target), sha256.convert(bytes).toString());
+      expect(sha256FileSync(target), sha256.convert(bytes).toString());
     });
   });
 
@@ -374,6 +606,7 @@ void main() {
       'Historical proxy game',
       oldExe.path,
     );
+    oldGame.selectedProxy = 'winmm.dll';
     expect(manager.view(oldGame).mod.kind, ModStateKind.applied);
     await manager.installMod(
       oldGame.id,
@@ -515,6 +748,8 @@ void main() {
     await exe.writeAsString('exe');
     await File(p.join(gameDir.path, defaultProxy))
         .writeAsString('mod-version.dll');
+    await File(p.join(gameDir.path, 'dbghelp.dll'))
+        .writeAsString('game-debug-helper');
     await File(p.join(gameDir.path, 'dlssg_sm86.ini'))
         .writeAsString(releaseIni);
     final game = await manager.addManualGame('Existing driver', exe.path);
@@ -531,7 +766,7 @@ void main() {
     );
   });
 
-  test('未知版本的既有驱动可以直接更新而不备份驱动 DLL', () async {
+  test('已有 INI 的未知代理 DLL 会视为已部署且不备份', () async {
     final root = await Directory.systemTemp.createTemp('dlssg-update-driver-');
     addTearDown(() => root.delete(recursive: true));
     final manager = await ModManager.open(dataDirectory: root);
@@ -560,7 +795,7 @@ void main() {
     );
   });
 
-  test('每个代理入口只保留最新非 Mod 原始 DLL 备份，并可静默恢复', () async {
+  test('已有原始 DLL 备份时不会被后续安装覆盖', () async {
     final root = await Directory.systemTemp.createTemp('dlssg-install-');
     addTearDown(() => root.delete(recursive: true));
     final manager = await ModManager.open(dataDirectory: root);
@@ -579,21 +814,22 @@ void main() {
     await original.writeAsString('original-v1');
     final game = await manager.addManualGame('Game', exe.path);
     await manager.installMod(game.id, confirmOverwrite: true);
-    expect(
-      manager.db.games.firstWhere((x) => x.id == game.id).backups,
-      hasLength(1),
+    final backup = File(
+      manager.db.games.firstWhere((x) => x.id == game.id).backups.single.file,
     );
+    expect(await backup.readAsString(), 'original-v1');
     expect(await original.readAsString(), 'mod-version.dll');
     await manager.uninstallMod(game.id);
     expect(await original.readAsString(), 'original-v1');
     await original.writeAsString('original-v2');
     await manager.installMod(game.id, confirmOverwrite: true);
+    expect(await backup.readAsString(), 'original-v1');
     expect(
       manager.db.games.firstWhere((x) => x.id == game.id).backups,
-      hasLength(1),
+      isEmpty,
     );
     await manager.uninstallMod(game.id);
-    expect(await original.readAsString(), 'original-v2');
+    expect(await original.readAsString(), 'original-v1');
   });
 
   test('游戏驱动设置立即写入游戏自定义 INI', () async {
@@ -722,6 +958,22 @@ void main() {
     await manager.scanSteam();
 
     expect(manager.db.games.where((game) => game.id == '987654321'), isEmpty);
+  });
+
+  test('Steam 清单未变化时重启不会重复扫描', () async {
+    final root = await Directory.systemTemp.createTemp('dlssg-steam-skip-');
+    addTearDown(() => root.delete(recursive: true));
+    final firstScanner = _CountingSteamScanner({'manifest': 1});
+    await ModManager.open(dataDirectory: root, scanner: firstScanner);
+    expect(firstScanner.scanCount, 1);
+
+    final unchangedScanner = _CountingSteamScanner({'manifest': 1});
+    await ModManager.open(dataDirectory: root, scanner: unchangedScanner);
+    expect(unchangedScanner.scanCount, 0);
+
+    final changedScanner = _CountingSteamScanner({'manifest': 2});
+    await ModManager.open(dataDirectory: root, scanner: changedScanner);
+    expect(changedScanner.scanCount, 1);
   });
 
   test('移除游戏只删除管理列表记录', () async {
