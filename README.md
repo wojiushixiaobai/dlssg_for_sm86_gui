@@ -1,5 +1,7 @@
 # DLSSG for SM86 Manager
 
+在 RTX 30 系列（SM86）和 RTX 20 系列（SM75）上启用 NVIDIA DLSS 帧生成（DLSS-G）。
+
 `%LOCALAPPDATA%\dlssg_for_sm86_gui` 配置文件路径。
 
 ## 开发
@@ -10,8 +12,11 @@
 flutter pub get
 flutter test
 ```
+## 安装
 
-## 发布
+访问 [Release](https://github.com/wojiushixiaobai/dlssg_for_sm86_gui/releases) 下载构建好的二进制文件，解压后执行 dlssg-for-sm86-manager.exe。
+
+## 编译
 
 ```powershell
 .\tool\package_windows.ps1
@@ -19,8 +24,8 @@ flutter test
 
 脚本生成 `release/dlssg-for-sm86-manager-portable.zip`。解压后直接运行。
 
-## 配置
+## 应用截图
 
-仅保留两层配置：`data\global.ini` 是全局默认配置，安装驱动程序时会写入游戏目录；
-用户在某游戏的设置页面修改参数后，会将该游戏标记为自定义配置。修改全局配置会同步
-到所有仍使用全局配置的已安装游戏；游戏自定义配置不会被覆盖，且可随时恢复为全局配置。
+![主页](./images/1.jpg)
+![驱动](./images/2.jpg)
+![设置](./images/3.jpg)
