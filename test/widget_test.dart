@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/gestures.dart';
 import 'package:dlssg_for_sm86_manager/main.dart';
 import 'package:dlssg_for_sm86_manager/manager.dart';
@@ -6,6 +8,97 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('连续两次管理员权限启动失败都显示相同类型的提示', (tester) async {
+    tester.view.physicalSize = const Size(1280, 720);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final game = GameView(
+      GameEntry(
+        id: 'uac-game',
+        name: '需要授权的游戏',
+        source: const GameSource.manual(),
+      ),
+      TargetState.ready,
+      const ModStatus(ModStateKind.notApplied),
+      const ConfigStatus(ConfigStateKind.global),
+    );
+    final manager = _FakeManager(games: [game]);
+    await tester.pumpWidget(MaterialApp(home: Shell(manager)));
+    await tester.pump();
+    await tester.tap(find.text('游戏设置').first);
+    await tester.pump();
+
+    for (var attempt = 1; attempt <= 2; attempt++) {
+      await tester.tap(find.widgetWithText(TextButton, '启动游戏'));
+      await tester.pump();
+      expect(manager.launchCalls, attempt);
+      expect(
+        find.textContaining('操作失败：ProcessException: 无法以管理员权限启动游戏'),
+        findsOneWidget,
+      );
+      await tester.pump(const Duration(seconds: 5));
+      expect(
+        find.textContaining('操作失败：ProcessException: 无法以管理员权限启动游戏'),
+        findsNothing,
+      );
+    }
+  });
+
+  testWidgets('驱动下载失败后再次点击仍显示提示', (tester) async {
+    final manager = _FakeManager();
+    await tester.pumpWidget(MaterialApp(home: Shell(manager)));
+    await tester.tap(find.text('驱动程序').first);
+    await tester.pump();
+
+    for (var attempt = 1; attempt <= 2; attempt++) {
+      await tester.tap(find.widgetWithText(FilledButton, '下载'));
+      await tester.pump();
+      expect(manager.refreshCalls, attempt);
+      expect(find.textContaining('下载失败'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 5));
+      expect(find.textContaining('下载失败'), findsNothing);
+    }
+  });
+
+  testWidgets('重复操作错误会重新显示提示并重置关闭时间', (tester) async {
+    await tester.pumpWidget(MaterialApp(home: Shell(_FakeManager())));
+    final shell = tester.state(find.byType(Shell)) as dynamic;
+
+    Future<void> fail() => shell.act(() async {
+      throw StateError('重复错误');
+    });
+
+    await fail();
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.textContaining('重复错误'), findsOneWidget);
+    expect(find.byKey(const ValueKey('toast-1')), findsOneWidget);
+
+    await fail();
+    await tester.pump();
+    expect(find.textContaining('重复错误'), findsOneWidget);
+    expect(find.byKey(const ValueKey('toast-1')), findsNothing);
+    expect(find.byKey(const ValueKey('toast-2')), findsOneWidget);
+    final replayOpacity = tester.widget<Opacity>(
+      find.descendant(
+        of: find.byKey(const ValueKey('toast-2')),
+        matching: find.byType(Opacity),
+      ),
+    );
+    expect(replayOpacity.opacity, 0);
+
+    await tester.pump(const Duration(seconds: 4));
+    expect(find.textContaining('重复错误'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.textContaining('重复错误'), findsNothing);
+
+    await fail();
+    await tester.pump();
+    expect(find.textContaining('重复错误'), findsOneWidget);
+    expect(find.byKey(const ValueKey('toast-3')), findsOneWidget);
+  });
+
   testWidgets('主页无游戏时不显示游戏库栏目', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: Home([], _ignoreGame)));
     expect(find.text('Steam 库'), findsNothing);
@@ -316,6 +409,49 @@ void main() {
     await tester.longPress(find.text('游戏 1'));
     expect(removed?.game.id, 'game-1');
   });
+}
+
+class _FakeManager implements ModManager {
+  _FakeManager({this.games = const []});
+
+  final List<GameView> games;
+  int refreshCalls = 0;
+  int launchCalls = 0;
+
+  @override
+  Future<List<GameView>> listGames() async => games;
+
+  @override
+  Future<void> launchGame(String id) async {
+    launchCalls++;
+    throw ProcessException(
+      'game.exe',
+      const [],
+      '无法以管理员权限启动游戏 (Win32: 1223)',
+      1223,
+    );
+  }
+
+  @override
+  Future<String> refreshModFromGithub({
+    void Function(DownloadProgress progress)? onProgress,
+  }) async {
+    refreshCalls++;
+    throw StateError('下载失败');
+  }
+
+  @override
+  Future<String> latestDriverVersion() async => '1.0';
+
+  @override
+  ManagerInfo get info => const ManagerInfo(
+    dataDirectory: 'test',
+    installedVersion: null,
+    modAvailable: false,
+  );
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 void _ignore() {}

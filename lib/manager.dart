@@ -431,7 +431,7 @@ class ModManager {
       // Process.start cannot display UAC. Ask Windows to elevate only when the
       // game itself requires it; the manager stays at its current privilege.
       if (Platform.isWindows && error.errorCode == 740) {
-        if (!_launchElevated(executable.path)) return;
+        _launchElevated(executable.path);
       } else {
         rethrow;
       }
@@ -908,8 +908,7 @@ class _DigestSink implements Sink<Digest> {
   void close() {}
 }
 
-/// Returns false if the user declines the Windows UAC prompt.
-bool _launchElevated(String executablePath) {
+void _launchElevated(String executablePath) {
   final executable = File(executablePath).absolute;
   final operation = 'runas'.toNativeUtf16();
   final file = executable.path.toNativeUtf16();
@@ -922,10 +921,9 @@ bool _launchElevated(String executablePath) {
       ..lpFile = file
       ..lpDirectory = directory
       ..nShow = SW_SHOWNORMAL;
-    if (ShellExecuteEx(launch) != 0) return true;
+    if (ShellExecuteEx(launch) != 0) return;
 
     final error = GetLastError();
-    if (error == ERROR_CANCELLED) return false;
     throw ProcessException(
       executable.path,
       const [],

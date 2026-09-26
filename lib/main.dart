@@ -203,7 +203,7 @@ class Shell extends StatefulWidget {
 class _ShellState extends State<Shell> {
   int page = 0;
   bool gameTab = true, busy = false;
-  String? selected, note;
+  String? selected, toast;
   String? latestDriverVersion;
   DownloadProgress? downloadProgress;
   bool updateCheckFailed = false;
@@ -211,7 +211,8 @@ class _ShellState extends State<Shell> {
   ManagerInfo? info;
   var hagsStatus = HardwareAcceleratedGpuSchedulingStatus.unavailable;
   late final bool _refreshHagsWhenSwitchingGames;
-  Timer? _noteTimer;
+  Timer? _toastTimer;
+  int _toastSerial = 0;
 
   @override
   void initState() {
@@ -224,22 +225,25 @@ class _ShellState extends State<Shell> {
 
   @override
   void dispose() {
-    _noteTimer?.cancel();
+    _toastTimer?.cancel();
     super.dispose();
   }
 
-  void _showNote(String message) {
-    _noteTimer?.cancel();
+  void _showToast(String message) {
+    _toastTimer?.cancel();
     if (!mounted) return;
-    setState(() => note = message);
-    _noteTimer = Timer(const Duration(seconds: 5), () {
-      if (mounted) setState(() => note = null);
+    setState(() {
+      toast = message;
+      _toastSerial++;
+    });
+    _toastTimer = Timer(const Duration(seconds: 5), () {
+      if (mounted) setState(() => toast = null);
     });
   }
 
-  void _clearNote() {
-    _noteTimer?.cancel();
-    note = null;
+  void _clearToast() {
+    _toastTimer?.cancel();
+    toast = null;
   }
 
   void _refreshHagsStatus() {
@@ -271,7 +275,7 @@ class _ShellState extends State<Shell> {
   Future<bool> _runAction(Future<void> Function() job) async {
     setState(() {
       busy = true;
-      _clearNote();
+      _clearToast();
       downloadProgress = null;
     });
     try {
@@ -279,7 +283,7 @@ class _ShellState extends State<Shell> {
       await load();
       return true;
     } catch (e) {
-      _showNote('操作失败：$e');
+      _showToast('操作失败：$e');
       return false;
     } finally {
       if (mounted) setState(() => busy = false);
@@ -293,14 +297,14 @@ class _ShellState extends State<Shell> {
   Future<void> launchGame(GameView game) async {
     setState(() {
       busy = true;
-      _clearNote();
+      _clearToast();
       downloadProgress = null;
     });
     try {
       await widget.manager.launchGame(game.game.id);
       await load();
     } catch (error) {
-      _showNote('操作失败：$error');
+      _showToast('操作失败：$error');
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -383,47 +387,98 @@ class _ShellState extends State<Shell> {
       ),
     };
     return Scaffold(
-      body: Row(
+      body: Stack(
         children: [
-          NvidiaNavigation(
-            selectedIndex: page,
-            onSelected: (index) => setState(() {
-              page = index;
-              if (index == 2) _refreshHagsStatus();
-            }),
+          Row(
+            children: [
+              NvidiaNavigation(
+                selectedIndex: page,
+                onSelected: (index) => setState(() {
+                  page = index;
+                  if (index == 2) _refreshHagsStatus();
+                }),
+              ),
+              Expanded(
+                child: Column(
+                  children: [
+                    Container(
+                      height: 70,
+                      alignment: Alignment.centerLeft,
+                      padding: const EdgeInsets.symmetric(horizontal: 30),
+                      color: _nvidiaHeader,
+                      child: Text(
+                        ['主页', '驱动程序', '游戏设置'][page],
+                        style: const TextStyle(
+                          color: _nvidiaText,
+                          fontSize: 24,
+                          fontWeight: _uiEmphasisWeight,
+                        ),
+                      ),
+                    ),
+                    Expanded(child: content),
+                  ],
+                ),
+              ),
+            ],
           ),
-          Expanded(
-            child: Column(
-              children: [
-                Container(
-                  height: 70,
-                  alignment: Alignment.centerLeft,
-                  padding: const EdgeInsets.symmetric(horizontal: 30),
-                  color: _nvidiaHeader,
-                  child: Text(
-                    ['主页', '驱动程序', '游戏设置'][page],
-                    style: const TextStyle(
-                      color: _nvidiaText,
-                      fontSize: 24,
-                      fontWeight: _uiEmphasisWeight,
+          if (toast != null)
+            Positioned(
+              top: 80,
+              left: 138,
+              right: 30,
+              child: IgnorePointer(
+                child: Align(
+                  alignment: Alignment.topRight,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 420),
+                    child: TweenAnimationBuilder<double>(
+                      key: ValueKey('toast-$_toastSerial'),
+                      tween: Tween(begin: 0, end: 1),
+                      duration: const Duration(milliseconds: 180),
+                      builder: (context, progress, child) => Opacity(
+                        opacity: progress,
+                        child: Transform.translate(
+                          offset: Offset(0, -8 * (1 - progress)),
+                          child: child,
+                        ),
+                      ),
+                      child: Material(
+                        color: const Color(0xff323232),
+                        elevation: 8,
+                        borderRadius: BorderRadius.circular(8),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.error_outline,
+                                size: 20,
+                                color: Color(0xffffb17a),
+                              ),
+                              const SizedBox(width: 10),
+                              Flexible(
+                                child: Text(
+                                  toast!,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 14,
+                                    height: 1.4,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 ),
-                if (note != null)
-                  Container(
-                    width: double.infinity,
-                    margin: const EdgeInsets.fromLTRB(30, 0, 30, 8),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xff29391c),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(note!),
-                  ),
-                Expanded(child: content),
-              ],
+              ),
             ),
-          ),
         ],
       ),
     );
