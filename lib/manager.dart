@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:ffi';
 import 'dart:io';
 
 import 'package:archive/archive_io.dart';
@@ -55,18 +56,6 @@ class DownloadProgress {
   double? get fraction => totalBytes == null || totalBytes == 0
       ? null
       : (downloadedBytes / totalBytes!).clamp(0, 1).toDouble();
-}
-
-/// Indicates that Windows refused to start a game because it requires
-/// elevation. The UI should let the user launch it themselves instead of
-/// attempting to elevate the manager process.
-class GameRequiresElevationException implements Exception {
-  const GameRequiresElevationException(this.executablePath);
-
-  final String executablePath;
-
-  @override
-  String toString() => '游戏需要管理员权限，请手动运行游戏 EXE。';
 }
 
 class ModManager {
@@ -430,19 +419,22 @@ class ModManager {
     if (game.exePath == null || !File(game.exePath!).existsSync()) {
       throw StateError('请先选择有效的游戏 EXE');
     }
+    final executable = File(game.exePath!).absolute;
     try {
       await Process.start(
-        game.exePath!,
+        executable.path,
         const [],
+        workingDirectory: executable.parent.path,
         mode: ProcessStartMode.detached,
       );
     } on ProcessException catch (error) {
-      // ERROR_ELEVATION_REQUIRED. Do not use `runas`: the user should choose
-      // how to launch the game from its own directory.
+      // Process.start cannot display UAC. Ask Windows to elevate only when the
+      // game itself requires it; the manager stays at its current privilege.
       if (Platform.isWindows && error.errorCode == 740) {
-        throw GameRequiresElevationException(game.exePath!);
+        if (!_launchElevated(executable.path)) return;
+      } else {
+        rethrow;
       }
-      rethrow;
     }
     game.lastPlayedAt = DateTime.now().toUtc();
     await _save();
@@ -914,6 +906,38 @@ class _DigestSink implements Sink<Digest> {
 
   @override
   void close() {}
+}
+
+/// Returns false if the user declines the Windows UAC prompt.
+bool _launchElevated(String executablePath) {
+  final executable = File(executablePath).absolute;
+  final operation = 'runas'.toNativeUtf16();
+  final file = executable.path.toNativeUtf16();
+  final directory = executable.parent.path.toNativeUtf16();
+  final launch = calloc<SHELLEXECUTEINFO>();
+  try {
+    launch.ref
+      ..cbSize = sizeOf<SHELLEXECUTEINFO>()
+      ..lpVerb = operation
+      ..lpFile = file
+      ..lpDirectory = directory
+      ..nShow = SW_SHOWNORMAL;
+    if (ShellExecuteEx(launch) != 0) return true;
+
+    final error = GetLastError();
+    if (error == ERROR_CANCELLED) return false;
+    throw ProcessException(
+      executable.path,
+      const [],
+      '无法以管理员权限启动游戏 (Win32: $error)',
+      error,
+    );
+  } finally {
+    calloc.free(launch);
+    calloc.free(operation);
+    calloc.free(file);
+    calloc.free(directory);
+  }
 }
 
 Future<String> sha256File(File file) async =>

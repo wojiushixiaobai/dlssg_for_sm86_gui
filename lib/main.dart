@@ -114,24 +114,6 @@ void _openWindowsGraphicsSettings() {
   }
 }
 
-Future<bool> _openGameExecutableDirectory(String executablePath) async {
-  if (!Platform.isWindows) return false;
-  final executable = File(executablePath);
-  if (!executable.existsSync()) return false;
-  try {
-    // Explorer requires /select, and the target as separate command-line
-    // arguments. ShellExecute can discard that selection argument when it
-    // reuses an existing Explorer window.
-    await Process.start('explorer.exe', [
-      '/select,',
-      executable.absolute.path,
-    ], mode: ProcessStartMode.detached);
-    return true;
-  } on ProcessException {
-    return false;
-  }
-}
-
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(DlssgApp(await ModManager.open()));
@@ -229,6 +211,7 @@ class _ShellState extends State<Shell> {
   ManagerInfo? info;
   var hagsStatus = HardwareAcceleratedGpuSchedulingStatus.unavailable;
   late final bool _refreshHagsWhenSwitchingGames;
+  Timer? _noteTimer;
 
   @override
   void initState() {
@@ -237,6 +220,26 @@ class _ShellState extends State<Shell> {
     _refreshHagsWhenSwitchingGames =
         hagsStatus == HardwareAcceleratedGpuSchedulingStatus.disabled;
     load();
+  }
+
+  @override
+  void dispose() {
+    _noteTimer?.cancel();
+    super.dispose();
+  }
+
+  void _showNote(String message) {
+    _noteTimer?.cancel();
+    if (!mounted) return;
+    setState(() => note = message);
+    _noteTimer = Timer(const Duration(seconds: 5), () {
+      if (mounted) setState(() => note = null);
+    });
+  }
+
+  void _clearNote() {
+    _noteTimer?.cancel();
+    note = null;
   }
 
   void _refreshHagsStatus() {
@@ -268,7 +271,7 @@ class _ShellState extends State<Shell> {
   Future<bool> _runAction(Future<void> Function() job) async {
     setState(() {
       busy = true;
-      note = null;
+      _clearNote();
       downloadProgress = null;
     });
     try {
@@ -276,7 +279,7 @@ class _ShellState extends State<Shell> {
       await load();
       return true;
     } catch (e) {
-      if (mounted) setState(() => note = '操作失败：$e');
+      _showNote('操作失败：$e');
       return false;
     } finally {
       if (mounted) setState(() => busy = false);
@@ -290,48 +293,17 @@ class _ShellState extends State<Shell> {
   Future<void> launchGame(GameView game) async {
     setState(() {
       busy = true;
-      note = null;
+      _clearNote();
       downloadProgress = null;
     });
-    GameRequiresElevationException? elevationError;
     try {
       await widget.manager.launchGame(game.game.id);
       await load();
-    } on GameRequiresElevationException catch (error) {
-      elevationError = error;
     } catch (error) {
-      if (mounted) setState(() => note = '操作失败：$error');
+      _showNote('操作失败：$error');
     } finally {
       if (mounted) setState(() => busy = false);
     }
-
-    if (elevationError == null) return;
-    final directoryOpened = await _openGameExecutableDirectory(
-      elevationError.executablePath,
-    );
-    if (!mounted) return;
-    setState(() {
-      note = directoryOpened
-          ? '游戏需要管理员权限，已定位并选中游戏 EXE，请手动运行。'
-          : '游戏需要管理员权限，请手动运行游戏 EXE。';
-    });
-    await showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('需要管理员权限'),
-        content: Text(
-          directoryOpened
-              ? '游戏需要管理员权限，已定位并选中游戏 EXE，请手动运行。'
-              : '游戏需要管理员权限，请手动运行游戏 EXE。',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('知道了'),
-          ),
-        ],
-      ),
-    );
   }
 
   Future<void> removeGame(GameView game) async {
@@ -862,7 +834,7 @@ class _GameCardState extends State<GameCard> {
                                         ),
                                         child: const Text(
                                           '启动',
-                                          style: const TextStyle(
+                                          style: TextStyle(
                                             fontWeight: _uiEmphasisWeight,
                                           ),
                                         ),
