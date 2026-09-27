@@ -8,6 +8,23 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('首次启动只显示游戏状态检查提示', (tester) async {
+    await tester.pumpWidget(const InitializationApp());
+    expect(find.text('正在检查游戏状态…'), findsOneWidget);
+    expect(find.byType(Shell), findsNothing);
+  });
+
+  testWidgets('首次检查完成后直接展示预加载游戏', (tester) async {
+    final game = _gameView(1);
+    final manager = _FakeManager(games: [game]);
+    await tester.pumpWidget(
+      MaterialApp(home: Shell(manager, initialGames: [game])),
+    );
+
+    expect(find.text('游戏 1'), findsOneWidget);
+    expect(manager.listCalls, 0);
+  });
+
   testWidgets('连续两次管理员权限启动失败都显示相同类型的提示', (tester) async {
     tester.view.physicalSize = const Size(1280, 720);
     tester.view.devicePixelRatio = 1;
@@ -415,11 +432,15 @@ class _FakeManager implements ModManager {
   _FakeManager({this.games = const []});
 
   final List<GameView> games;
+  int listCalls = 0;
   int refreshCalls = 0;
   int launchCalls = 0;
 
   @override
-  Future<List<GameView>> listGames() async => games;
+  Future<List<GameView>> listGames() async {
+    listCalls++;
+    return games;
+  }
 
   @override
   Future<void> launchGame(String id) async {

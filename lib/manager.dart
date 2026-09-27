@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:archive/archive_io.dart';
 import 'package:crypto/crypto.dart';
@@ -78,6 +79,7 @@ class ModManager {
   final http.Client client;
   final _uuid = const Uuid();
   final _fileHashCache = <String, _FileHashCacheEntry>{};
+  bool _initialGameListPending = false;
 
   /// Application storage under `%LOCALAPPDATA%\dlssg_for_sm86_gui`.
   ///
@@ -125,6 +127,7 @@ class ModManager {
     Directory? dataDirectory,
     SteamScanner? scanner,
     http.Client? client,
+    Future<void> Function()? onFirstLaunch,
   }) async {
     final root = dataDirectory ?? defaultDataDirectory();
     final releaseRoot = dataDirectory == null
@@ -150,16 +153,30 @@ class ModManager {
       client: client,
     );
     await manager._migrateLegacyGlobalProfile();
+    final firstLaunch = !db.steamInitialScanCompleted;
+    manager._initialGameListPending = firstLaunch;
+    if (firstLaunch) await onFirstLaunch?.call();
     try {
-      if (manager.db.steamExecutableDetectionVersion <
-          _steamExecutableDetectionVersion) {
-        await manager.scanSteam();
+      if (firstLaunch && scanner == null) {
+        final dataPath = root.path;
+        final releasePath = releaseRoot.path;
+        final stateText = db.toJsonText();
+        manager.db = Database.fromJsonText(
+          await Isolate.run(
+            () => _refreshSteamInBackground(dataPath, releasePath, stateText),
+          ),
+        );
       } else {
-        await manager.refreshSteamIfChanged();
-      }
-      if (!manager.db.steamInitialScanCompleted) {
-        manager.db.steamInitialScanCompleted = true;
-        await manager._save();
+        if (manager.db.steamExecutableDetectionVersion <
+            _steamExecutableDetectionVersion) {
+          await manager.scanSteam();
+        } else {
+          await manager.refreshSteamIfChanged();
+        }
+        if (!manager.db.steamInitialScanCompleted) {
+          manager.db.steamInitialScanCompleted = true;
+          await manager._save();
+        }
       }
     } catch (_) {}
     return manager;
@@ -232,7 +249,20 @@ class ModManager {
     await copyAtomic(source, _globalIniFile);
   }
 
-  Future<List<GameView>> listGames() async => db.games.map(view).toList();
+  Future<List<GameView>> listGames() async {
+    if (!_initialGameListPending) return db.games.map(view).toList();
+    final dataPath = root.path;
+    final releasePath = releaseRoot.path;
+    final database = db;
+    final cachedHashes = Map<String, _FileHashCacheEntry>.of(_fileHashCache);
+    final result = await Isolate.run(
+      () =>
+          _listGamesInBackground(dataPath, releasePath, database, cachedHashes),
+    );
+    _fileHashCache.addAll(result.hashes);
+    _initialGameListPending = false;
+    return result.games;
+  }
 
   /// Returns the folder that should be shown first when choosing a game's EXE.
   /// Steam's app manifest remains a fallback when executable detection has not
@@ -864,6 +894,59 @@ class _FileHashCacheEntry {
   final int size;
   final DateTime modified;
   final String hash;
+}
+
+class _GameViewsResult {
+  const _GameViewsResult(this.games, this.hashes);
+  final List<GameView> games;
+  final Map<String, _FileHashCacheEntry> hashes;
+}
+
+Future<String> _refreshSteamInBackground(
+  String dataPath,
+  String releasePath,
+  String stateText,
+) async {
+  final manager = ModManager._(
+    Directory(dataPath),
+    Directory(releasePath),
+    Database.fromJsonText(stateText),
+  );
+  try {
+    if (manager.db.steamExecutableDetectionVersion <
+        ModManager._steamExecutableDetectionVersion) {
+      await manager.scanSteam();
+    } else {
+      await manager.refreshSteamIfChanged();
+    }
+    if (!manager.db.steamInitialScanCompleted) {
+      manager.db.steamInitialScanCompleted = true;
+      await manager._save();
+    }
+    return manager.db.toJsonText();
+  } finally {
+    manager.client.close();
+  }
+}
+
+_GameViewsResult _listGamesInBackground(
+  String dataPath,
+  String releasePath,
+  Database database,
+  Map<String, _FileHashCacheEntry> cachedHashes,
+) {
+  final manager = ModManager._(
+    Directory(dataPath),
+    Directory(releasePath),
+    database,
+  );
+  try {
+    manager._fileHashCache.addAll(cachedHashes);
+    final games = database.games.map(manager.view).toList();
+    return _GameViewsResult(games, manager._fileHashCache);
+  } finally {
+    manager.client.close();
+  }
 }
 
 class _LatestRelease {

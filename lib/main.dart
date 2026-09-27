@@ -116,13 +116,46 @@ void _openWindowsGraphicsSettings() {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(DlssgApp(await ModManager.open()));
+  var firstLaunch = false;
+  final manager = await ModManager.open(
+    onFirstLaunch: () async {
+      firstLaunch = true;
+      runApp(const InitializationApp());
+      await WidgetsBinding.instance.endOfFrame;
+    },
+  );
+  final initialGames = firstLaunch ? await manager.listGames() : null;
+  runApp(DlssgApp(manager, initialGames: initialGames));
+}
+
+class InitializationApp extends StatelessWidget {
+  const InitializationApp({super.key});
+  @override
+  Widget build(BuildContext context) => MaterialApp(
+    debugShowCheckedModeBanner: false,
+    title: 'DLSSG for SM86 Manager',
+    theme: ThemeData.dark(),
+    home: Scaffold(
+      backgroundColor: _nvidiaAppBackground,
+      body: const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(color: _nvidiaGreen),
+            SizedBox(height: 20),
+            Text('正在检查游戏状态…'),
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 class DlssgApp extends StatelessWidget {
-  DlssgApp(this.manager, {super.key})
+  DlssgApp(this.manager, {this.initialGames, super.key})
     : artworkCache = SteamArtworkCache(manager.artworkSourcesFile);
   final ModManager manager;
+  final List<GameView>? initialGames;
   final SteamArtworkCache artworkCache;
   @override
   Widget build(BuildContext context) => MaterialApp(
@@ -172,7 +205,10 @@ class DlssgApp extends StatelessWidget {
         style: ButtonStyle(mouseCursor: _buttonMouseCursor),
       ),
     ),
-    home: ArtworkCacheScope(cache: artworkCache, child: Shell(manager)),
+    home: ArtworkCacheScope(
+      cache: artworkCache,
+      child: Shell(manager, initialGames: initialGames),
+    ),
   );
 }
 
@@ -194,8 +230,9 @@ class ArtworkCacheScope extends InheritedWidget {
 }
 
 class Shell extends StatefulWidget {
-  const Shell(this.manager, {super.key});
+  const Shell(this.manager, {this.initialGames, super.key});
   final ModManager manager;
+  final List<GameView>? initialGames;
   @override
   State<Shell> createState() => _ShellState();
 }
@@ -220,7 +257,13 @@ class _ShellState extends State<Shell> {
     hagsStatus = readHagsStatus();
     _refreshHagsWhenSwitchingGames =
         hagsStatus == HardwareAcceleratedGpuSchedulingStatus.disabled;
-    load();
+    final initialGames = widget.initialGames;
+    if (initialGames != null) {
+      games = initialGames;
+      info = widget.manager.info;
+      selected = initialGames.isEmpty ? null : initialGames.first.game.id;
+    }
+    load(preparedGames: initialGames);
   }
 
   @override
@@ -250,8 +293,8 @@ class _ShellState extends State<Shell> {
     if (_refreshHagsWhenSwitchingGames) hagsStatus = readHagsStatus();
   }
 
-  Future<void> load() async {
-    final found = await widget.manager.listGames();
+  Future<void> load({List<GameView>? preparedGames}) async {
+    final found = preparedGames ?? await widget.manager.listGames();
     String? latest;
     var latestFailed = false;
     try {

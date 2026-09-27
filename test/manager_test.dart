@@ -1335,6 +1335,42 @@ void main() {
     expect(changedScanner.scanCount, 1);
   });
 
+  test('初始化提示仅在首次启动触发，后续仍按清单变化扫描', () async {
+    final root = await Directory.systemTemp.createTemp('dlssg-initialize-');
+    addTearDown(() => root.delete(recursive: true));
+    var initializationCount = 0;
+    Future<void> onFirstLaunch() async {
+      initializationCount++;
+    }
+
+    final firstScanner = _CountingSteamScanner({'manifest': 1});
+    await ModManager.open(
+      dataDirectory: root,
+      scanner: firstScanner,
+      onFirstLaunch: onFirstLaunch,
+    );
+    expect(initializationCount, 1);
+    expect(firstScanner.scanCount, 1);
+
+    final unchangedScanner = _CountingSteamScanner({'manifest': 1});
+    await ModManager.open(
+      dataDirectory: root,
+      scanner: unchangedScanner,
+      onFirstLaunch: onFirstLaunch,
+    );
+    expect(initializationCount, 1);
+    expect(unchangedScanner.scanCount, 0);
+
+    final changedScanner = _CountingSteamScanner({'manifest': 2});
+    await ModManager.open(
+      dataDirectory: root,
+      scanner: changedScanner,
+      onFirstLaunch: onFirstLaunch,
+    );
+    expect(initializationCount, 1);
+    expect(changedScanner.scanCount, 1);
+  });
+
   test('升级 EXE 识别规则后会重新扫描未变化的 Steam 清单', () async {
     final root = await Directory.systemTemp.createTemp('dlssg-steam-upgrade-');
     addTearDown(() => root.delete(recursive: true));
@@ -1367,6 +1403,57 @@ void main() {
 
     expect(manager.db.games.where((entry) => entry.id == game.id), isEmpty);
     expect(await executable.exists(), isTrue);
+  });
+
+  test('大量游戏的状态可以在后台完整计算', () async {
+    final root = await Directory.systemTemp.createTemp('dlssg-many-games-');
+    addTearDown(() => root.delete(recursive: true));
+    final manager = await ModManager.open(
+      dataDirectory: root,
+      scanner: _CountingSteamScanner({}),
+    );
+    manager.db.games.addAll(
+      List.generate(
+        1000,
+        (index) => GameEntry(
+          id: 'game-$index',
+          name: 'Game $index',
+          source: const GameSource.manual(),
+          exePath: p.join(root.path, 'missing-$index.exe'),
+        ),
+      ),
+    );
+    final executable = File(p.join(root.path, 'installed', 'game.exe'));
+    await executable.parent.create();
+    await executable.writeAsString('exe');
+    await File(p.join(executable.parent.path, 'dlssg_sm86.ini'))
+        .writeAsString(releaseIni);
+    await File(p.join(executable.parent.path, defaultProxy))
+        .writeAsString('driver');
+    manager.db.games.add(
+      GameEntry(
+        id: 'installed',
+        name: 'Installed game',
+        source: const GameSource.manual(),
+        exePath: executable.path,
+      ),
+    );
+
+    final views = await manager.listGames();
+
+    expect(views, hasLength(1001));
+    expect(views.first.game.id, 'game-0');
+    expect(views[999].game.id, 'game-999');
+    expect(
+      views.take(1000).every((view) => view.target == TargetState.missing),
+      isTrue,
+    );
+    expect(views.last.target, TargetState.ready);
+    expect(views.last.mod.kind, ModStateKind.applied);
+    expect(
+      identical((await manager.listGames()).first.game, manager.db.games.first),
+      isTrue,
+    );
   });
 
   test('Steam 游戏选择 EXE 时定位到其安装目录', () async {
