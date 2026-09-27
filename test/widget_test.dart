@@ -2,12 +2,98 @@ import 'dart:io';
 
 import 'package:flutter/gestures.dart';
 import 'package:dlssg_for_sm86_manager/main.dart';
+import 'package:dlssg_for_sm86_manager/hags.dart';
 import 'package:dlssg_for_sm86_manager/manager.dart';
 import 'package:dlssg_for_sm86_manager/models.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('首次读取 HAGS 失败后进入游戏设置会重试', (tester) async {
+    tester.view.physicalSize = const Size(1280, 720);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    var status = HardwareAcceleratedGpuSchedulingStatus.unavailable;
+    var reads = 0;
+    final games = [_hagsGameView()];
+    final manager = _FakeManager(games: games);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Shell(
+          manager,
+          initialGames: games,
+          hagsStatusReader: () {
+            reads++;
+            return status;
+          },
+        ),
+      ),
+    );
+    await tester.pump();
+
+    status = HardwareAcceleratedGpuSchedulingStatus.enabled;
+    await tester.tap(find.text('游戏设置').first);
+    await tester.pump();
+
+    expect(reads, 2);
+    expect(find.text('无法读取硬件加速 GPU 调度状态'), findsNothing);
+    expect(find.text('硬件加速 GPU 调度未开启'), findsNothing);
+  });
+
+  testWidgets('返回应用时重试无法读取的 HAGS 状态', (tester) async {
+    tester.view.physicalSize = const Size(1280, 720);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    var status = HardwareAcceleratedGpuSchedulingStatus.unavailable;
+    final manager = _FakeManager(games: [_hagsGameView()]);
+    await tester.pumpWidget(
+      MaterialApp(home: Shell(manager, hagsStatusReader: () => status)),
+    );
+    await tester.pump();
+    await tester.tap(find.text('游戏设置').first);
+    await tester.pump();
+    expect(find.text('无法读取硬件加速 GPU 调度状态'), findsOneWidget);
+
+    status = HardwareAcceleratedGpuSchedulingStatus.enabled;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+
+    expect(find.text('无法读取硬件加速 GPU 调度状态'), findsNothing);
+  });
+
+  testWidgets('已读取为关闭时不把未重启的设置变化当作生效', (tester) async {
+    tester.view.physicalSize = const Size(1280, 720);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    var status = HardwareAcceleratedGpuSchedulingStatus.disabled;
+    var reads = 0;
+    final manager = _FakeManager(games: [_hagsGameView()]);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Shell(
+          manager,
+          hagsStatusReader: () {
+            reads++;
+            return status;
+          },
+        ),
+      ),
+    );
+    await tester.pump();
+
+    status = HardwareAcceleratedGpuSchedulingStatus.enabled;
+    await tester.tap(find.text('游戏设置').first);
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+
+    expect(reads, 1);
+    expect(find.text('硬件加速 GPU 调度未开启'), findsOneWidget);
+  });
+
   testWidgets('首次启动只显示游戏状态检查提示', (tester) async {
     await tester.pumpWidget(const InitializationApp());
     expect(find.text('正在检查游戏状态…'), findsOneWidget);
@@ -486,5 +572,16 @@ GameView _gameView(int index) => GameView(
   ),
   TargetState.ready,
   const ModStatus(ModStateKind.applied),
+  const ConfigStatus(ConfigStateKind.global),
+);
+
+GameView _hagsGameView() => GameView(
+  GameEntry(
+    id: 'hags-game',
+    name: 'HAGS 游戏',
+    source: const GameSource.manual(),
+  ),
+  TargetState.ready,
+  const ModStatus(ModStateKind.notApplied),
   const ConfigStatus(ConfigStateKind.global),
 );

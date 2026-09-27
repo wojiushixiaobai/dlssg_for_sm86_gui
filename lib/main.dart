@@ -230,14 +230,20 @@ class ArtworkCacheScope extends InheritedWidget {
 }
 
 class Shell extends StatefulWidget {
-  const Shell(this.manager, {this.initialGames, super.key});
+  const Shell(
+    this.manager, {
+    this.initialGames,
+    this.hagsStatusReader,
+    super.key,
+  });
   final ModManager manager;
   final List<GameView>? initialGames;
+  final HardwareAcceleratedGpuSchedulingStatus Function()? hagsStatusReader;
   @override
   State<Shell> createState() => _ShellState();
 }
 
-class _ShellState extends State<Shell> {
+class _ShellState extends State<Shell> with WidgetsBindingObserver {
   int page = 0;
   bool gameTab = true, busy = false;
   String? selected, toast;
@@ -247,16 +253,14 @@ class _ShellState extends State<Shell> {
   List<GameView> games = [];
   ManagerInfo? info;
   var hagsStatus = HardwareAcceleratedGpuSchedulingStatus.unavailable;
-  late final bool _refreshHagsWhenSwitchingGames;
   Timer? _toastTimer;
   int _toastSerial = 0;
 
   @override
   void initState() {
     super.initState();
-    hagsStatus = readHagsStatus();
-    _refreshHagsWhenSwitchingGames =
-        hagsStatus == HardwareAcceleratedGpuSchedulingStatus.disabled;
+    WidgetsBinding.instance.addObserver(this);
+    hagsStatus = _readHagsStatus();
     final initialGames = widget.initialGames;
     if (initialGames != null) {
       games = initialGames;
@@ -268,9 +272,22 @@ class _ShellState extends State<Shell> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _toastTimer?.cancel();
     super.dispose();
   }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed &&
+        hagsStatus == HardwareAcceleratedGpuSchedulingStatus.unavailable) {
+      final status = _readHagsStatus();
+      if (status != hagsStatus) setState(() => hagsStatus = status);
+    }
+  }
+
+  HardwareAcceleratedGpuSchedulingStatus _readHagsStatus() =>
+      (widget.hagsStatusReader ?? readHagsStatus)();
 
   void _showToast(String message) {
     _toastTimer?.cancel();
@@ -290,7 +307,9 @@ class _ShellState extends State<Shell> {
   }
 
   void _refreshHagsStatus() {
-    if (_refreshHagsWhenSwitchingGames) hagsStatus = readHagsStatus();
+    if (hagsStatus == HardwareAcceleratedGpuSchedulingStatus.unavailable) {
+      hagsStatus = _readHagsStatus();
+    }
   }
 
   Future<void> load({List<GameView>? preparedGames}) async {
