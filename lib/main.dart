@@ -1051,8 +1051,10 @@ bool _needsDriverUpdate(ModStatus status, String? currentVersion) =>
     (status.version == '未知版本' ||
         (currentVersion != null && status.version != currentVersion));
 
-String modLabel(ModStatus x) =>
-    x.kind == ModStateKind.applied ? '已安装 · ${x.version ?? '未知版本'}' : '未安装';
+String modLabel(ModStatus x) => switch (x.kind) {
+  ModStateKind.applied => '已安装：${x.version ?? '未知版本'}',
+  ModStateKind.notApplied => '未安装',
+};
 
 String _formatBytes(int bytes) {
   if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(0)} KB';
@@ -1696,17 +1698,14 @@ class GameSettings extends StatefulWidget {
 }
 
 class _GameSettingsState extends State<GameSettings> {
-  String proxy = defaultProxy;
+  String? proxy = defaultProxy;
   ConfigProfile? config;
   bool loadingConfig = false;
 
   @override
   void initState() {
     super.initState();
-    proxy =
-        widget.view?.mod.proxy ??
-        widget.view?.game.selectedProxy ??
-        defaultProxy;
+    proxy = _initialProxy(widget.view);
     _loadConfig();
   }
 
@@ -1714,19 +1713,24 @@ class _GameSettingsState extends State<GameSettings> {
   void didUpdateWidget(GameSettings old) {
     super.didUpdateWidget(old);
     final gameChanged = old.view?.game.id != widget.view?.game.id;
-    if (gameChanged) {
-      proxy =
-          widget.view?.mod.proxy ??
-          widget.view?.game.selectedProxy ??
-          defaultProxy;
-      config = null;
+    if (gameChanged ||
+        old.view?.mod.proxy != widget.view?.mod.proxy ||
+        old.view?.mod.unrecognizedProxyHashes.length !=
+            widget.view?.mod.unrecognizedProxyHashes.length) {
+      proxy = _initialProxy(widget.view);
     }
+    if (gameChanged) config = null;
     if (gameChanged ||
         old.hasMod != widget.hasMod ||
         old.view?.target != widget.view?.target ||
         old.view?.mod.kind != widget.view?.mod.kind) {
       _loadConfig();
     }
+  }
+
+  String? _initialProxy(GameView? view) {
+    if ((view?.mod.unrecognizedProxyHashes.length ?? 0) > 1) return null;
+    return view?.mod.proxy ?? view?.game.selectedProxy ?? defaultProxy;
   }
 
   Future<void> _loadConfig() async {
@@ -1786,7 +1790,10 @@ class _GameSettingsState extends State<GameSettings> {
                 ? () => widget.launch(v)
                 : null,
             proxy: proxy,
-            onProxyChanged: v.mod.kind == ModStateKind.applied || widget.busy
+            onProxyChanged:
+                (v.mod.kind == ModStateKind.applied &&
+                        v.mod.unrecognizedProxyHashes.isEmpty) ||
+                    widget.busy
                 ? null
                 : (x) => setState(() => proxy = x!),
             hagsStatus: widget.hagsStatus,
@@ -1797,18 +1804,19 @@ class _GameSettingsState extends State<GameSettings> {
                       if (needsUpdate)
                         TextButton(
                           style: _inlineActionButtonStyle,
-                          onPressed: canInstall ? () => install(c, v) : null,
+                          onPressed: canInstall && proxy != null
+                              ? () => install(c, v)
+                              : null,
                           child: const Text('更新'),
                         ),
-                      TextButton(
-                        style: _inlineActionButtonStyle,
-                        onPressed: widget.busy
-                            ? null
-                            : () => widget.act(
-                                () => widget.manager.uninstallMod(g.id),
-                              ),
-                        child: const Text('卸载'),
-                      ),
+                      if (v.mod.canUninstall)
+                        TextButton(
+                          style: _inlineActionButtonStyle,
+                          onPressed: widget.busy || proxy == null
+                              ? null
+                              : () => uninstall(c, v),
+                          child: const Text('卸载'),
+                        ),
                     ],
                   )
                 : TextButton(
@@ -1864,9 +1872,11 @@ class _GameSettingsState extends State<GameSettings> {
   }
 
   Future<void> install(BuildContext c, GameView v) async {
+    final selectedProxy = proxy;
+    if (selectedProxy == null) return;
     await widget.act(() async {
       try {
-        await widget.manager.installMod(v.game.id, proxy: proxy);
+        await widget.manager.installMod(v.game.id, proxy: selectedProxy);
       } on StateError catch (error) {
         final isManualConflict =
             v.game.source.kind == GameSourceKind.manual &&
@@ -1876,18 +1886,40 @@ class _GameSettingsState extends State<GameSettings> {
         final accepted = await dialog(
           c,
           '覆盖未知 DLL？',
-          '将保存原始 DLL 的单一最新备份，再安装驱动程序。',
+          '将保留该代理 DLL 的原始备份，再安装驱动程序。',
         );
         if (!mounted) return;
         if (accepted) {
           await widget.manager.installMod(
             v.game.id,
-            proxy: proxy,
+            proxy: selectedProxy,
             confirmOverwrite: true,
           );
         }
       }
     });
+  }
+
+  Future<void> uninstall(BuildContext c, GameView v) async {
+    final selectedProxy = proxy;
+    if (selectedProxy == null) return;
+    final expectedSha256 = v.mod.unrecognizedProxyHashes[selectedProxy];
+    if (expectedSha256 != null) {
+      final accepted = await dialog(
+        c,
+        '卸载未知版本 DLL？',
+        '无法验证 $selectedProxy 的来源。确认后将移除该 DLL 和 dlssg_sm86.ini；如有原始备份则恢复。',
+      );
+      if (!accepted || !mounted) return;
+    }
+    await widget.act(
+      () => widget.manager.uninstallMod(
+        v.game.id,
+        proxy: selectedProxy,
+        confirmUnrecognized: expectedSha256 != null,
+        expectedSha256: expectedSha256,
+      ),
+    );
   }
 }
 
@@ -1904,7 +1936,7 @@ class _GameControlHeader extends StatelessWidget {
   final GameEntry game;
   final ModStatus status;
   final VoidCallback? onRun;
-  final String proxy;
+  final String? proxy;
   final ValueChanged<String?>? onProxyChanged;
   final HardwareAcceleratedGpuSchedulingStatus hagsStatus;
   final Widget action;
@@ -1967,13 +1999,7 @@ class _GameControlHeader extends StatelessWidget {
                   : Colors.white54,
             ),
             const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                status.kind == ModStateKind.applied
-                    ? '驱动已安装 · ${status.version ?? '未知版本'}'
-                    : '驱动尚未安装',
-              ),
-            ),
+            Expanded(child: Text(modLabel(status))),
             const SizedBox(width: 12),
             action,
           ],
@@ -1987,10 +2013,14 @@ class _GameControlHeader extends StatelessWidget {
                 : SystemMouseCursors.click,
             child: DropdownButton<String>(
               value: proxy,
+              hint: const Text('请选择代理 DLL'),
               isExpanded: true,
-              items: proxies
-                  .map((x) => DropdownMenuItem(value: x, child: Text(x)))
-                  .toList(),
+              items:
+                  (status.unrecognizedProxyHashes.isEmpty
+                          ? proxies
+                          : status.unrecognizedProxyHashes.keys)
+                      .map((x) => DropdownMenuItem(value: x, child: Text(x)))
+                      .toList(),
               onChanged: onProxyChanged,
             ),
           ),

@@ -12,6 +12,7 @@ import 'package:uuid/uuid.dart';
 import 'package:win32/win32.dart';
 
 import 'models.dart';
+import 'dll_signature.dart';
 import 'steam.dart';
 
 const proxies = [
@@ -79,7 +80,7 @@ class ModManager {
   final http.Client client;
   final _uuid = const Uuid();
   final _fileHashCache = <String, _FileHashCacheEntry>{};
-  bool _initialGameListPending = false;
+  final _signatureCache = <String, bool>{};
 
   /// Application storage under `%LOCALAPPDATA%\dlssg_for_sm86_gui`.
   ///
@@ -154,10 +155,9 @@ class ModManager {
     );
     await manager._migrateLegacyGlobalProfile();
     final firstLaunch = !db.steamInitialScanCompleted;
-    manager._initialGameListPending = firstLaunch;
     if (firstLaunch) await onFirstLaunch?.call();
     try {
-      if (firstLaunch && scanner == null) {
+      if (scanner == null) {
         final dataPath = root.path;
         final releasePath = releaseRoot.path;
         final stateText = db.toJsonText();
@@ -250,17 +250,22 @@ class ModManager {
   }
 
   Future<List<GameView>> listGames() async {
-    if (!_initialGameListPending) return db.games.map(view).toList();
     final dataPath = root.path;
     final releasePath = releaseRoot.path;
     final database = db;
     final cachedHashes = Map<String, _FileHashCacheEntry>.of(_fileHashCache);
+    final cachedSignatures = Map<String, bool>.of(_signatureCache);
     final result = await Isolate.run(
-      () =>
-          _listGamesInBackground(dataPath, releasePath, database, cachedHashes),
+      () => _listGamesInBackground(
+        dataPath,
+        releasePath,
+        database,
+        cachedHashes,
+        cachedSignatures,
+      ),
     );
     _fileHashCache.addAll(result.hashes);
-    _initialGameListPending = false;
+    _signatureCache.addAll(result.signatures);
     return result.games;
   }
 
@@ -298,7 +303,7 @@ class ModManager {
   }
 
   GameView view(GameEntry game) =>
-      GameView(game, _targetState(game), _modState(game), _configState(game));
+      GameView(game, _targetState(game), _modState(game));
   TargetState _targetState(GameEntry game) => game.exePath == null
       ? TargetState.awaitingExe
       : File(game.exePath!).existsSync()
@@ -307,60 +312,71 @@ class ModManager {
   ModStatus _modState(GameEntry game) {
     if (game.exePath == null) return const ModStatus(ModStateKind.notApplied);
     final dir = File(game.exePath!).parent;
-    if (!File(p.join(dir.path, 'dlssg_sm86.ini')).existsSync()) {
-      return const ModStatus(ModStateKind.notApplied);
-    }
-
     final recorded = game.install;
-    // A game can contain unrelated DLLs whose names also happen to be proxy
-    // names (for example, NARAKA ships dbghelp.dll). A deployment manages
-    // exactly one proxy, so inspect only the recorded proxy, or the selected
-    // proxy when recognizing an installation created before per-game records.
-    final proxy = (recorded?.proxy ?? game.selectedProxy ?? defaultProxy)
-        .toLowerCase();
-    if (!proxies.contains(proxy)) {
+    final candidates = _candidateProxies(game);
+    if (candidates.isEmpty ||
+        !File(p.join(dir.path, 'dlssg_sm86.ini')).existsSync()) {
       return const ModStatus(ModStateKind.notApplied);
     }
-    final installed = File(p.join(dir.path, proxy));
-    if (!installed.existsSync()) {
-      return const ModStatus(ModStateKind.notApplied);
-    }
-
-    final hash = _cachedSha256(installed).toLowerCase();
-    if (recorded != null && recorded.dllSha256.toLowerCase() == hash) {
-      return ModStatus(
-        ModStateKind.applied,
-        proxy: proxy,
-        version: recorded.version,
+    final preferred = candidates.first;
+    final unrecognized = <String, String>{};
+    for (final proxy in candidates) {
+      final installed = File(p.join(dir.path, proxy));
+      if (!installed.existsSync()) continue;
+      final version = _identifyProxyDll(
+        installed,
+        proxy,
+        recorded,
+        _modDll(proxy),
+        db.installedVersion,
+        _cachedSha256,
+        _signatureCache,
       );
+      if (version != null) {
+        return ModStatus(
+          ModStateKind.applied,
+          proxy: proxy,
+          version: version,
+          canUninstall: true,
+        );
+      }
+      unrecognized[proxy] = _cachedSha256(installed);
     }
-    final packaged = _modDll(proxy);
-    if (packaged.existsSync() &&
-        _cachedSha256(packaged).toLowerCase() == hash) {
-      return ModStatus(
-        ModStateKind.applied,
-        proxy: proxy,
-        version: db.installedVersion ?? '本地包',
-      );
-    }
-    return ModStatus(ModStateKind.applied, proxy: proxy, version: '未知版本');
+    final hasProxy = unrecognized.isNotEmpty;
+    return ModStatus(
+      hasProxy ? ModStateKind.applied : ModStateKind.notApplied,
+      proxy: unrecognized.containsKey(preferred)
+          ? preferred
+          : (hasProxy ? unrecognized.keys.first : preferred),
+      version: hasProxy ? '未知版本' : null,
+      canUninstall: hasProxy && recorded == null,
+      unrecognizedProxyHashes: recorded == null
+          ? Map.unmodifiable(unrecognized)
+          : const {},
+    );
   }
 
-  ConfigStatus _configState(GameEntry game) {
-    if (game.exePath != null) {
-      final gameIni = File(
-        p.join(File(game.exePath!).parent.path, 'dlssg_sm86.ini'),
-      );
-      if (gameIni.existsSync()) {
-        final actual = _cachedSha256(gameIni);
-        if (game.appliedProfileSha256 != null &&
-            game.appliedProfileSha256 != actual) {
-          return const ConfigStatus(ConfigStateKind.externallyModified);
-        }
-      }
-    }
-    return ConfigStatus(
-      game.hasCustomConfig ? ConfigStateKind.custom : ConfigStateKind.global,
+  // Destructive operations always re-check the actual bytes, without reusing
+  // the display cache. No WinTrust or file hashing work runs on the UI isolate.
+  Future<String?> _identifyProxyFresh(
+    GameEntry game,
+    String proxy,
+    File target,
+  ) {
+    final targetPath = target.path;
+    final packagePath = _modDll(proxy).path;
+    final installedVersion = db.installedVersion;
+    final recorded = game.install;
+    return Isolate.run(
+      () => _identifyProxyDll(
+        File(targetPath),
+        proxy,
+        recorded,
+        File(packagePath),
+        installedVersion,
+        sha256FileSync,
+        {},
+      ),
     );
   }
 
@@ -484,7 +500,19 @@ class ModManager {
   }) async {
     _requireMod();
     final game = _game(id);
-    final desired = (proxy ?? game.selectedProxy ?? defaultProxy).toLowerCase();
+    final status = _modState(game);
+    if (game.install == null &&
+        status.unrecognizedProxyHashes.length > 1 &&
+        proxy == null) {
+      throw StateError('存在多个无法识别的代理 DLL，请先选择要更新的文件。');
+    }
+    final desired =
+        (proxy ??
+                game.install?.proxy ??
+                (status.kind == ModStateKind.applied ? status.proxy : null) ??
+                game.selectedProxy ??
+                defaultProxy)
+            .toLowerCase();
     if (!proxies.contains(desired)) throw ArgumentError('不支持的代理 DLL');
     final source = _modDll(desired);
     if (!await source.exists()) throw StateError('未找到已缓存的驱动程序包；请先下载有效版本');
@@ -492,15 +520,13 @@ class ModManager {
     final old = game.install?.proxy;
     final target = File(p.join(dir.path, desired));
     final hadTarget = await target.exists();
-    // dlssg_sm86.ini is the deployment marker. If it is already present, the
-    // proxy has been deployed before and must not be backed up again. Without
-    // that marker, preserve the first DLL seen for each proxy; never replace
-    // an existing original backup during later installs.
-    final hasDeploymentIni = await File(p.join(dir.path, 'dlssg_sm86.ini'))
-        .exists();
+    final hasIni = await File(p.join(dir.path, 'dlssg_sm86.ini')).exists();
     final hasBackup = await _backupFile(game, desired).exists();
-    final needsBackup = hadTarget && !hasDeploymentIni && !hasBackup;
-    if (needsBackup) {
+    final knownTarget =
+        hadTarget && await _identifyProxyFresh(game, desired, target) != null;
+    final isGameDll = hadTarget && !hasIni && !knownTarget;
+    final needsBackup = isGameDll && !hasBackup;
+    if (isGameDll) {
       if (game.source.kind == GameSourceKind.manual && !confirmOverwrite) {
         throw StateError('目标 DLL 不是已知 DLSSG 文件。确认后将保存其原始副本并覆盖。');
       }
@@ -529,7 +555,7 @@ class ModManager {
       game.install = ManagedInstall(
         proxy: desired,
         dllSha256: hash,
-        version: db.installedVersion ?? '本地包',
+        version: db.installedVersion ?? '未知版本',
         installedAt: DateTime.now().toUtc(),
       );
       final ini = File(p.join(dir.path, 'dlssg_sm86.ini'));
@@ -549,26 +575,73 @@ class ModManager {
     }
   }
 
-  Future<void> uninstallMod(String id) async {
+  Future<void> uninstallMod(
+    String id, {
+    String? proxy,
+    bool confirmUnrecognized = false,
+    String? expectedSha256,
+  }) async {
     final game = _game(id);
-    // Use the on-disk proxy when recognizing an installation that predates
-    // per-game metadata, so uninstall removes the DLL that was actually found.
-    final proxy =
-        game.install?.proxy ?? _modState(game).proxy ?? game.selectedProxy;
-    if (proxy != null) await _restoreOrRemove(game, proxy);
-    final ini = File(p.join(_gameDirectory(game).path, 'dlssg_sm86.ini'));
+    final dir = _gameDirectory(game);
+    final requested = proxy?.toLowerCase();
+    if (requested != null && !proxies.contains(requested)) {
+      throw ArgumentError('不支持的代理 DLL');
+    }
+    var selected = game.install?.proxy;
+    if (selected != null && requested != null && requested != selected) {
+      throw StateError('所选代理与安装记录不一致。');
+    }
+    if (selected == null && requested != null) selected = requested;
+    if (selected == null) {
+      for (final candidate in _candidateProxies(game)) {
+        final target = File(p.join(dir.path, candidate));
+        if (await target.exists() &&
+            await _identifyProxyFresh(game, candidate, target) != null) {
+          selected = candidate;
+          break;
+        }
+      }
+    }
+    if (selected == null) {
+      final existing = <String>[];
+      for (final candidate in _candidateProxies(game)) {
+        if (await File(p.join(dir.path, candidate)).exists()) {
+          existing.add(candidate);
+        }
+      }
+      if (existing.length == 1) selected = existing.single;
+    }
+    if (selected == null) {
+      throw StateError('无法确认目标 DLL 属于 DLSSG，已保留 DLL 和配置文件。');
+    }
+    final target = File(p.join(dir.path, selected));
+    if (game.install == null && !await target.exists()) {
+      throw StateError('所选代理 DLL 不存在，已保留配置文件。');
+    }
+    final ini = File(p.join(dir.path, 'dlssg_sm86.ini'));
+    if (game.install == null &&
+        await _identifyProxyFresh(game, selected, target) == null) {
+      if (!await ini.exists() ||
+          !confirmUnrecognized ||
+          expectedSha256 == null ||
+          (await sha256File(target)).toLowerCase() !=
+              expectedSha256.toLowerCase()) {
+        throw StateError('无法确认目标 DLL 属于 DLSSG，已保留 DLL 和配置文件。');
+      }
+      final backup = _backupFile(game, selected);
+      if (await backup.exists()) {
+        await copyAtomic(backup, target);
+      } else {
+        await target.delete();
+      }
+      game.backups.removeWhere((entry) => entry.proxy == selected);
+    } else {
+      await _restoreOrRemove(game, selected);
+    }
     if (await ini.exists()) await ini.delete();
     game.install = null;
     game.appliedProfileSha256 = null;
     game.hasCustomConfig = false;
-    await _save();
-  }
-
-  Future<void> applyConfigToGame(String id) async {
-    _requireMod();
-    final game = _game(id);
-    game.hasCustomConfig = false;
-    await _writeInheritedConfig(game);
     await _save();
   }
 
@@ -653,8 +726,13 @@ class ModManager {
   }
 
   Future<void> _restoreOrRemove(GameEntry game, String proxy) async {
+    if (!proxies.contains(proxy)) throw StateError('不支持的代理 DLL');
     final target = File(p.join(_gameDirectory(game).path, proxy)),
         backup = _backupFile(game, proxy);
+    if (await target.exists() &&
+        await _identifyProxyFresh(game, proxy, target) == null) {
+      throw StateError('目标 DLL 已变更或无法确认属于 DLSSG，已保留原文件。');
+    }
     if (await backup.exists()) {
       await copyAtomic(backup, target);
     } else if (await target.exists()) {
@@ -889,6 +967,16 @@ class ModManager {
   }
 }
 
+List<String> _candidateProxies(GameEntry game) {
+  final preferred = (game.install?.proxy ?? game.selectedProxy ?? defaultProxy)
+      .toLowerCase();
+  if (!proxies.contains(preferred)) return const [];
+  return [
+    preferred,
+    if (game.install == null) ...proxies.where((proxy) => proxy != preferred),
+  ];
+}
+
 class _FileHashCacheEntry {
   const _FileHashCacheEntry(this.size, this.modified, this.hash);
   final int size;
@@ -897,10 +985,45 @@ class _FileHashCacheEntry {
 }
 
 class _GameViewsResult {
-  const _GameViewsResult(this.games, this.hashes);
+  const _GameViewsResult(this.games, this.hashes, this.signatures);
   final List<GameView> games;
   final Map<String, _FileHashCacheEntry> hashes;
+  final Map<String, bool> signatures;
 }
+
+// All display/install/uninstall decisions use this function. A signed proxy
+// can be recognized without a version catalog, but a certificate cannot tell
+// us its release version. Unknown files never count as an installed driver.
+String? _identifyProxyDll(
+  File target,
+  String proxy,
+  ManagedInstall? recorded,
+  File packaged,
+  String? packageVersion,
+  String Function(File) hashFile,
+  Map<String, bool> signatureCache,
+) {
+  final hash = hashFile(target).toLowerCase();
+  if (recorded?.proxy == proxy && recorded!.dllSha256.toLowerCase() == hash) {
+    return recorded.version == '本地包' ? '未知版本' : recorded.version;
+  }
+  if (packaged.existsSync() && hashFile(packaged).toLowerCase() == hash) {
+    return packageVersion ?? '未知版本';
+  }
+  final historicalVersion = _unsignedProxyVersions[hash];
+  if (historicalVersion != null) return historicalVersion;
+  final signed = signatureCache.putIfAbsent(
+    hash,
+    () => verifyDllSignature(target.path).isDlssg,
+  );
+  return signed ? '未知版本' : null;
+}
+
+// Only unsigned historical releases need individual hashes. Provenance and
+// upstream Git blob verification are documented in docs/dll-identification.md.
+const _unsignedProxyVersions = {
+  '03d445237d519ac48cd9226278a0f07aecd7ac597697697eb64404e1d51b3c5a': '0.1.0',
+};
 
 Future<String> _refreshSteamInBackground(
   String dataPath,
@@ -934,6 +1057,7 @@ _GameViewsResult _listGamesInBackground(
   String releasePath,
   Database database,
   Map<String, _FileHashCacheEntry> cachedHashes,
+  Map<String, bool> cachedSignatures,
 ) {
   final manager = ModManager._(
     Directory(dataPath),
@@ -942,8 +1066,13 @@ _GameViewsResult _listGamesInBackground(
   );
   try {
     manager._fileHashCache.addAll(cachedHashes);
+    manager._signatureCache.addAll(cachedSignatures);
     final games = database.games.map(manager.view).toList();
-    return _GameViewsResult(games, manager._fileHashCache);
+    return _GameViewsResult(
+      games,
+      manager._fileHashCache,
+      manager._signatureCache,
+    );
   } finally {
     manager.client.close();
   }

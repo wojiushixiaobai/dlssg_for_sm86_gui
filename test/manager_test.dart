@@ -967,11 +967,8 @@ void main() {
     );
     oldGame.selectedProxy = 'winmm.dll';
     expect(manager.view(oldGame).mod.kind, ModStateKind.applied);
-    await manager.installMod(
-      oldGame.id,
-      proxy: 'winmm.dll',
-      confirmOverwrite: true,
-    );
+    expect(manager.view(oldGame).mod.version, '未知版本');
+    await manager.installMod(oldGame.id, proxy: 'winmm.dll');
     expect(manager.view(oldGame).mod.kind, ModStateKind.applied);
     expect(
       await File(p.join(oldGameDir.path, 'winmm.dll')).readAsString(),
@@ -1009,7 +1006,10 @@ void main() {
   test('只有 dlssg_sm86.ini 时视为未安装', () async {
     final root = await Directory.systemTemp.createTemp('dlssg-existing-ini-');
     addTearDown(() => root.delete(recursive: true));
-    final manager = await ModManager.open(dataDirectory: root);
+    final manager = await ModManager.open(
+      dataDirectory: root,
+      scanner: _CountingSteamScanner({}),
+    );
     final gameDir = Directory(p.join(root.path, 'game'));
     await gameDir.create();
     final exe = File(p.join(gameDir.path, 'game.exe'));
@@ -1040,13 +1040,16 @@ void main() {
       await File(p.join(gameDir.path, 'dlssg_sm86.ini')).readAsString(),
       contains('MaxGeneratedFrames=2'),
     );
-    expect(manager.view(game).config.kind, ConfigStateKind.custom);
+    expect(game.hasCustomConfig, isTrue);
   });
 
-  test('缺少 dlssg_sm86.ini 时视为未安装', () async {
+  test('缺少 INI 的未识别代理显示为未安装', () async {
     final root = await Directory.systemTemp.createTemp('dlssg-missing-ini-');
     addTearDown(() => root.delete(recursive: true));
-    final manager = await ModManager.open(dataDirectory: root);
+    final manager = await ModManager.open(
+      dataDirectory: root,
+      scanner: _CountingSteamScanner({}),
+    );
     final gameDir = Directory(p.join(root.path, 'game'));
     await gameDir.create();
     final exe = File(p.join(gameDir.path, 'game.exe'));
@@ -1057,10 +1060,13 @@ void main() {
     expect(manager.view(game).mod.kind, ModStateKind.notApplied);
   });
 
-  test('缺少 INI 时即使有旧记录也会备份现有代理 DLL', () async {
+  test('现有 DLL 与旧记录不匹配时仍需备份', () async {
     final root = await Directory.systemTemp.createTemp('dlssg-stale-ini-');
     addTearDown(() => root.delete(recursive: true));
-    final manager = await ModManager.open(dataDirectory: root);
+    final manager = await ModManager.open(
+      dataDirectory: root,
+      scanner: _CountingSteamScanner({}),
+    );
     final cache = Directory(p.join(root.path, 'release', 'dlssg_for_sm86'));
     await cache.create(recursive: true);
     await File(p.join(cache.path, defaultProxy)).writeAsString('new-driver');
@@ -1076,7 +1082,7 @@ void main() {
     final entry = manager.db.games.firstWhere((x) => x.id == game.id);
     entry.install = ManagedInstall(
       proxy: defaultProxy,
-      dllSha256: await sha256File(proxy),
+      dllSha256: sha256.convert(utf8.encode('previous-driver')).toString(),
       version: 'old',
     );
 
@@ -1094,7 +1100,10 @@ void main() {
       'dlssg-existing-driver-',
     );
     addTearDown(() => root.delete(recursive: true));
-    final manager = await ModManager.open(dataDirectory: root);
+    final manager = await ModManager.open(
+      dataDirectory: root,
+      scanner: _CountingSteamScanner({}),
+    );
     final cache = Directory(p.join(root.path, 'release', 'dlssg_for_sm86'));
     await cache.create(recursive: true);
     await File(p.join(cache.path, defaultProxy))
@@ -1116,6 +1125,7 @@ void main() {
     final status = manager.view(game).mod;
     expect(status.kind, ModStateKind.applied);
     expect(status.version, 'test');
+    expect(status.canUninstall, isTrue);
 
     await manager.uninstallMod(game.id);
     expect(await File(p.join(gameDir.path, defaultProxy)).exists(), isFalse);
@@ -1125,10 +1135,13 @@ void main() {
     );
   });
 
-  test('已有 INI 的未知代理 DLL 会视为已部署且不备份', () async {
+  test('已有 INI 的未知代理 DLL 显示未知版本且更新时不备份', () async {
     final root = await Directory.systemTemp.createTemp('dlssg-update-driver-');
     addTearDown(() => root.delete(recursive: true));
-    final manager = await ModManager.open(dataDirectory: root);
+    final manager = await ModManager.open(
+      dataDirectory: root,
+      scanner: _CountingSteamScanner({}),
+    );
     final cache = Directory(p.join(root.path, 'release', 'dlssg_for_sm86'));
     await cache.create(recursive: true);
     await File(p.join(cache.path, defaultProxy))
@@ -1145,19 +1158,22 @@ void main() {
         .writeAsString(releaseIni);
     final game = await manager.addManualGame('Unknown driver', exe.path);
 
+    expect(manager.view(game).mod.kind, ModStateKind.applied);
+    expect(manager.view(game).mod.version, '未知版本');
     await manager.installMod(game.id);
-
     expect(await proxy.readAsString(), 'current-driver');
-    expect(
-      manager.db.games.firstWhere((x) => x.id == game.id).backups,
-      isEmpty,
-    );
+    expect(game.backups, isEmpty);
+    await manager.uninstallMod(game.id);
+    expect(await proxy.exists(), isFalse);
   });
 
   test('已有原始 DLL 备份时不会被后续安装覆盖', () async {
     final root = await Directory.systemTemp.createTemp('dlssg-install-');
     addTearDown(() => root.delete(recursive: true));
-    final manager = await ModManager.open(dataDirectory: root);
+    final manager = await ModManager.open(
+      dataDirectory: root,
+      scanner: _CountingSteamScanner({}),
+    );
     final cache = Directory(p.join(root.path, 'release', 'dlssg_for_sm86'));
     await cache.create(recursive: true);
     for (final proxy in proxies) {
@@ -1194,7 +1210,10 @@ void main() {
   test('游戏驱动设置立即写入游戏自定义 INI', () async {
     final root = await Directory.systemTemp.createTemp('dlssg-game-config-');
     addTearDown(() => root.delete(recursive: true));
-    final manager = await ModManager.open(dataDirectory: root);
+    final manager = await ModManager.open(
+      dataDirectory: root,
+      scanner: _CountingSteamScanner({}),
+    );
     final cache = Directory(p.join(root.path, 'release', 'dlssg_for_sm86'));
     await cache.create(recursive: true);
     await File(p.join(cache.path, 'dlssg_sm86.ini')).writeAsString(releaseIni);
@@ -1221,7 +1240,7 @@ void main() {
       manager.db.games.firstWhere((x) => x.id == game.id).hasCustomConfig,
       isTrue,
     );
-    expect(manager.view(game).config.kind, ConfigStateKind.custom);
+    expect(game.hasCustomConfig, isTrue);
     expect(
       (await manager.loadGameConfig(game.id)).value('Logging', 'Level'),
       '3',
@@ -1231,7 +1250,10 @@ void main() {
   test('安装继承全局配置，游戏自定义配置不受全局更新影响', () async {
     final root = await Directory.systemTemp.createTemp('dlssg-global-config-');
     addTearDown(() => root.delete(recursive: true));
-    final manager = await ModManager.open(dataDirectory: root);
+    final manager = await ModManager.open(
+      dataDirectory: root,
+      scanner: _CountingSteamScanner({}),
+    );
     final cache = Directory(p.join(root.path, 'release', 'dlssg_for_sm86'));
     await cache.create(recursive: true);
     for (final proxy in proxies) {
@@ -1251,7 +1273,7 @@ void main() {
       await File(p.join(gameDir.path, 'dlssg_sm86.ini')).readAsString(),
       contains('MaxGeneratedFrames=2'),
     );
-    expect(manager.view(game).config.kind, ConfigStateKind.global);
+    expect(game.hasCustomConfig, isFalse);
 
     final custom = testProfile('Game', maxGeneratedFrames: 1, loggingLevel: 3);
     await manager.saveGameConfig(game.id, custom);
@@ -1264,14 +1286,19 @@ void main() {
     );
   });
 
-  test('拒绝覆盖新代理时保留已经安装的旧代理', () async {
+  test('已有 INI 时切换代理不备份未知 DLL，并还原旧代理', () async {
     final root = await Directory.systemTemp.createTemp('dlssg-switch-proxy-');
     addTearDown(() => root.delete(recursive: true));
-    final manager = await ModManager.open(dataDirectory: root);
+    final manager = await ModManager.open(
+      dataDirectory: root,
+      scanner: _CountingSteamScanner({}),
+    );
     final cache = Directory(p.join(root.path, 'release', 'dlssg_for_sm86'));
-    await cache.create(recursive: true);
+    await Directory(p.join(cache.path, 'alternatives')).create(recursive: true);
     for (final proxy in proxies) {
-      await File(p.join(cache.path, proxy)).writeAsString('mod-$proxy');
+      await File(
+        p.join(cache.path, proxy == defaultProxy ? '' : 'alternatives', proxy),
+      ).writeAsString('mod-$proxy');
     }
     await File(p.join(cache.path, 'dlssg_sm86.ini')).writeAsString(releaseIni);
     manager.db.installedVersion = 'test';
@@ -1284,19 +1311,14 @@ void main() {
     final game = await manager.addManualGame('Game', exe.path);
     await manager.installMod(game.id, confirmOverwrite: true);
 
-    await expectLater(
-      manager.installMod(game.id, proxy: 'winmm.dll'),
-      throwsStateError,
-    );
-
+    await manager.installMod(game.id, proxy: 'winmm.dll');
     expect(
       await File(p.join(gameDir.path, defaultProxy)).readAsString(),
-      'mod-version.dll',
+      'original',
     );
-    expect(
-      manager.db.games.firstWhere((x) => x.id == game.id).install?.proxy,
-      defaultProxy,
-    );
+    expect(game.backups, isEmpty);
+    await manager.uninstallMod(game.id);
+    expect(await File(p.join(gameDir.path, 'winmm.dll')).exists(), isFalse);
   });
 
   test('Steam 扫描会移除已卸载游戏的过期条目', () async {
@@ -1392,7 +1414,10 @@ void main() {
   test('移除游戏只删除管理列表记录', () async {
     final root = await Directory.systemTemp.createTemp('dlssg-remove-game-');
     addTearDown(() => root.delete(recursive: true));
-    final manager = await ModManager.open(dataDirectory: root);
+    final manager = await ModManager.open(
+      dataDirectory: root,
+      scanner: _CountingSteamScanner({}),
+    );
     final directory = Directory(p.join(root.path, 'game'));
     await directory.create();
     final executable = File(p.join(directory.path, 'game.exe'));
@@ -1436,6 +1461,11 @@ void main() {
         name: 'Installed game',
         source: const GameSource.manual(),
         exePath: executable.path,
+        install: ManagedInstall(
+          proxy: defaultProxy,
+          dllSha256: sha256.convert(utf8.encode('driver')).toString(),
+          version: 'test',
+        ),
       ),
     );
 
@@ -1451,15 +1481,18 @@ void main() {
     expect(views.last.target, TargetState.ready);
     expect(views.last.mod.kind, ModStateKind.applied);
     expect(
-      identical((await manager.listGames()).first.game, manager.db.games.first),
-      isTrue,
+      (await manager.listGames()).first.game.id,
+      manager.db.games.first.id,
     );
   });
 
   test('Steam 游戏选择 EXE 时定位到其安装目录', () async {
     final root = await Directory.systemTemp.createTemp('dlssg-game-dir-');
     addTearDown(() => root.delete(recursive: true));
-    final manager = await ModManager.open(dataDirectory: root);
+    final manager = await ModManager.open(
+      dataDirectory: root,
+      scanner: _CountingSteamScanner({}),
+    );
     final library = Directory(p.join(root.path, 'SteamLibrary'));
     final manifest = File(
       p.join(library.path, 'steamapps', 'appmanifest_480.acf'),

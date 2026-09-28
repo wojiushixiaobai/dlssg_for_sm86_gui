@@ -295,22 +295,22 @@ enum TargetState { awaitingExe, ready, missing }
 enum ModStateKind { applied, notApplied }
 
 class ModStatus {
-  const ModStatus(this.kind, {this.version, this.proxy});
+  const ModStatus(
+    this.kind, {
+    this.version,
+    this.proxy,
+    this.canUninstall = false,
+    this.unrecognizedProxyHashes = const {},
+  });
   final ModStateKind kind;
   final String? version, proxy;
-}
-
-enum ConfigStateKind { global, custom, externallyModified }
-
-class ConfigStatus {
-  const ConfigStatus(this.kind);
-  final ConfigStateKind kind;
+  final bool canUninstall;
+  final Map<String, String> unrecognizedProxyHashes;
 }
 
 class GameView {
-  const GameView(this.game, this.target, this.mod, this.config);
+  const GameView(this.game, this.target, this.mod);
   final GameEntry game;
   final TargetState target;
   final ModStatus mod;
-  final ConfigStatus config;
 }

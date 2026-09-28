@@ -9,6 +9,116 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('未识别 DLL 且无 INI 时显示未安装', (tester) async {
+    tester.view.physicalSize = const Size(1280, 720);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final game = GameView(
+      GameEntry(
+        id: 'unknown',
+        name: '未知 DLL 游戏',
+        source: const GameSource.manual(),
+      ),
+      TargetState.ready,
+      const ModStatus(ModStateKind.notApplied, proxy: defaultProxy),
+    );
+    final manager = _FakeManager(games: [game]);
+    await tester.pumpWidget(MaterialApp(home: Shell(manager)));
+    await tester.pump();
+    await tester.tap(find.text('游戏设置').first);
+    await tester.pump();
+    expect(find.text('未安装'), findsWidgets);
+    expect(find.widgetWithText(TextButton, '卸载'), findsNothing);
+  });
+
+  testWidgets('手动安装的未知版本 DLL 经确认后可卸载', (tester) async {
+    tester.view.physicalSize = const Size(1280, 720);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final game = GameView(
+      GameEntry(
+        id: 'unrecognized',
+        name: '未知版本游戏',
+        source: const GameSource.manual(),
+      ),
+      TargetState.ready,
+      const ModStatus(
+        ModStateKind.applied,
+        proxy: defaultProxy,
+        version: '未知版本',
+        canUninstall: true,
+        unrecognizedProxyHashes: {defaultProxy: 'test-hash'},
+      ),
+    );
+    final manager = _FakeManager(games: [game]);
+    await tester.pumpWidget(MaterialApp(home: Shell(manager)));
+    await tester.pump();
+    await tester.tap(find.text('游戏设置').first);
+    await tester.pump();
+
+    expect(find.text('已安装：未知版本'), findsWidgets);
+    await tester.tap(find.widgetWithText(TextButton, '卸载'));
+    await tester.pump();
+    expect(find.text('卸载未知版本 DLL？'), findsOneWidget);
+    expect(manager.uninstallCalls, 0);
+    await tester.tap(find.widgetWithText(FilledButton, '继续'));
+    await tester.pump();
+    expect(manager.uninstallCalls, 1);
+    expect(manager.uninstalledProxy, defaultProxy);
+    expect(manager.uninstallExpectedSha256, 'test-hash');
+  });
+
+  testWidgets('多个未知代理须先选择目标才能卸载', (tester) async {
+    tester.view.physicalSize = const Size(1280, 720);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final game = GameView(
+      GameEntry(
+        id: 'multiple-proxies',
+        name: '多个代理游戏',
+        source: const GameSource.manual(),
+      ),
+      TargetState.ready,
+      const ModStatus(
+        ModStateKind.applied,
+        proxy: defaultProxy,
+        version: '未知版本',
+        canUninstall: true,
+        unrecognizedProxyHashes: {
+          defaultProxy: 'version-hash',
+          'winmm.dll': 'winmm-hash',
+        },
+      ),
+    );
+    final manager = _FakeManager(games: [game]);
+    await tester.pumpWidget(MaterialApp(home: Shell(manager)));
+    await tester.pump();
+    await tester.tap(find.text('游戏设置').first);
+    await tester.pump();
+
+    expect(find.text('请选择代理 DLL'), findsOneWidget);
+    expect(
+      tester
+          .widget<TextButton>(find.widgetWithText(TextButton, '卸载'))
+          .onPressed,
+      isNull,
+    );
+    await tester.tap(find.text('请选择代理 DLL'));
+    await tester.pump();
+    await tester.tap(find.text('winmm.dll').last);
+    await tester.pump();
+    await tester.tap(find.widgetWithText(TextButton, '卸载'));
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, '继续'));
+    await tester.pump();
+
+    expect(manager.uninstalledProxy, 'winmm.dll');
+    expect(manager.uninstallExpectedSha256, 'winmm-hash');
+  });
+
   testWidgets('首次读取 HAGS 失败后进入游戏设置会重试', (tester) async {
     tester.view.physicalSize = const Size(1280, 720);
     tester.view.devicePixelRatio = 1;
@@ -125,7 +235,6 @@ void main() {
       ),
       TargetState.ready,
       const ModStatus(ModStateKind.notApplied),
-      const ConfigStatus(ConfigStateKind.global),
     );
     final manager = _FakeManager(games: [game]);
     await tester.pumpWidget(MaterialApp(home: Shell(manager)));
@@ -237,13 +346,11 @@ void main() {
             older,
             TargetState.ready,
             const ModStatus(ModStateKind.applied),
-            const ConfigStatus(ConfigStateKind.global),
           ),
           GameView(
             newer,
             TargetState.ready,
             const ModStatus(ModStateKind.applied),
-            const ConfigStatus(ConfigStateKind.global),
           ),
         ], _ignoreGame),
       ),
@@ -449,7 +556,6 @@ void main() {
       ),
       TargetState.ready,
       const ModStatus(ModStateKind.notApplied),
-      const ConfigStatus(ConfigStateKind.global),
     );
     await tester.pumpWidget(
       MaterialApp(
@@ -521,11 +627,29 @@ class _FakeManager implements ModManager {
   int listCalls = 0;
   int refreshCalls = 0;
   int launchCalls = 0;
+  int uninstallCalls = 0;
+  String? uninstalledProxy, uninstallExpectedSha256;
 
   @override
   Future<List<GameView>> listGames() async {
     listCalls++;
     return games;
+  }
+
+  @override
+  Future<ConfigProfile> loadGameConfig(String id) async =>
+      ModManager.parseProfile('测试配置', '[General]\nEnabled=1\n');
+
+  @override
+  Future<void> uninstallMod(
+    String id, {
+    String? proxy,
+    bool confirmUnrecognized = false,
+    String? expectedSha256,
+  }) async {
+    uninstallCalls++;
+    uninstalledProxy = proxy;
+    uninstallExpectedSha256 = expectedSha256;
   }
 
   @override
@@ -572,7 +696,6 @@ GameView _gameView(int index) => GameView(
   ),
   TargetState.ready,
   const ModStatus(ModStateKind.applied),
-  const ConfigStatus(ConfigStateKind.global),
 );
 
 GameView _hagsGameView() => GameView(
@@ -583,5 +706,4 @@ GameView _hagsGameView() => GameView(
   ),
   TargetState.ready,
   const ModStatus(ModStateKind.notApplied),
-  const ConfigStatus(ConfigStateKind.global),
 );
