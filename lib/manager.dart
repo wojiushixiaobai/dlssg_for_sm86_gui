@@ -167,16 +167,7 @@ class ModManager {
           ),
         );
       } else {
-        if (manager.db.steamExecutableDetectionVersion <
-            _steamExecutableDetectionVersion) {
-          await manager.scanSteam();
-        } else {
-          await manager.refreshSteamIfChanged();
-        }
-        if (!manager.db.steamInitialScanCompleted) {
-          manager.db.steamInitialScanCompleted = true;
-          await manager._save();
-        }
+        await manager._refreshSteamOnStartup();
       }
     } catch (_) {}
     return manager;
@@ -751,6 +742,18 @@ class ModManager {
     return scanSteam(snapshot: snapshot);
   }
 
+  Future<void> _refreshSteamOnStartup() async {
+    if (db.steamExecutableDetectionVersion < _steamExecutableDetectionVersion) {
+      await scanSteam();
+    } else {
+      await refreshSteamIfChanged();
+    }
+    if (!db.steamInitialScanCompleted) {
+      db.steamInitialScanCompleted = true;
+      await _save();
+    }
+  }
+
   Future<int> scanSteam({Map<String, int>? snapshot}) async {
     final games = await scanner.scan(existing: db.games);
     final modificationTimes =
@@ -1076,16 +1079,7 @@ Future<String> _refreshSteamInBackground(
     Database.fromJsonText(stateText),
   );
   try {
-    if (manager.db.steamExecutableDetectionVersion <
-        ModManager._steamExecutableDetectionVersion) {
-      await manager.scanSteam();
-    } else {
-      await manager.refreshSteamIfChanged();
-    }
-    if (!manager.db.steamInitialScanCompleted) {
-      manager.db.steamInitialScanCompleted = true;
-      await manager._save();
-    }
+    await manager._refreshSteamOnStartup();
     return manager.db.toJsonText();
   } finally {
     manager.client.close();

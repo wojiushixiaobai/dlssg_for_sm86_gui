@@ -41,6 +41,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
   bool _checkingUpdates = false;
   DateTime? _lastUpdateCheck;
   List<GameView> games = [];
+  bool gamesLoaded = false;
   ManagerInfo? info;
   var hagsStatus = HardwareAcceleratedGpuSchedulingStatus.unavailable;
   Timer? _toastTimer;
@@ -54,10 +55,12 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     final initialGames = widget.initialGames;
     if (initialGames != null) {
       games = initialGames;
+      gamesLoaded = true;
       info = widget.manager.info;
       selected = initialGames.isEmpty ? null : initialGames.first.game.id;
+    } else {
+      unawaited(load());
     }
-    load(preparedGames: initialGames);
     unawaited(_checkForUpdates());
   }
 
@@ -103,11 +106,12 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> load({List<GameView>? preparedGames}) async {
-    final found = preparedGames ?? await widget.manager.listGames();
+  Future<void> load() async {
+    final found = await widget.manager.listGames();
     if (mounted) {
       setState(() {
         games = found;
+        gamesLoaded = true;
         info = widget.manager.info;
         selected = found.any((x) => x.game.id == selected)
             ? selected
@@ -200,7 +204,12 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final content = switch (page) {
-      0 => Home(games, openGame, launch: launchGame),
+      0 =>
+        gamesLoaded
+            ? Home(games, openGame, launch: launchGame)
+            : const Center(
+                child: CircularProgressIndicator(color: _nvidiaGreen),
+              ),
       1 => Drivers(
         info,
         latestDriverVersion,

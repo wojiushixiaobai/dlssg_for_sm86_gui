@@ -523,38 +523,26 @@ class SteamScanner {
             gameName: name,
             installDir: installDir,
           );
-      if (scanned != null) {
-        scanned.name = name;
-        scanned.source = GameSource.steam(appId, installed.library.path);
+      final existingGame = scanned ?? existingSteam.remove(appId);
+      if (existingGame != null) {
+        existingGame.name = name;
+        existingGame.source = GameSource.steam(appId, installed.library.path);
         if (lastPlayed[appId] != null) {
-          scanned.lastPlayedAt = lastPlayed[appId];
-        }
-        if (steamDefinedExe != null ||
-            _shouldReplaceWithUnrealExecutable(scanned.exePath, detectedExe) ||
-            scanned.exePath == null ||
-            !File(scanned.exePath!).existsSync()) {
-          scanned.exePath = detectedExe;
-        }
-        continue;
-      }
-      final previousSteam = existingSteam.remove(appId);
-      if (previousSteam != null) {
-        previousSteam.name = name;
-        previousSteam.source = GameSource.steam(appId, installed.library.path);
-        if (lastPlayed[appId] != null) {
-          previousSteam.lastPlayedAt = lastPlayed[appId];
+          existingGame.lastPlayedAt = lastPlayed[appId];
         }
         if (steamDefinedExe != null ||
             _shouldReplaceWithUnrealExecutable(
-              previousSteam.exePath,
+              existingGame.exePath,
               detectedExe,
             ) ||
-            previousSteam.exePath == null ||
-            !File(previousSteam.exePath!).existsSync()) {
-          previousSteam.exePath = detectedExe;
+            existingGame.exePath == null ||
+            !File(existingGame.exePath!).existsSync()) {
+          existingGame.exePath = detectedExe;
         }
-        result.add(previousSteam);
-        scannedSteam[appId] = previousSteam;
+        if (scanned == null) {
+          result.add(existingGame);
+          scannedSteam[appId] = existingGame;
+        }
         continue;
       }
       final manual = result.indexWhere(
@@ -563,26 +551,25 @@ class SteamScanner {
             game.exePath != null &&
             _isWithin(game.exePath!, gameFolder.path),
       );
-      final game = GameEntry(
-        id: _id(),
-        name: name,
-        source: GameSource.steam(appId, installed.library.path),
-        exePath: detectedExe,
-        selectedProxy: 'version.dll',
-        createdAt: DateTime.now().toUtc(),
-        lastPlayedAt: lastPlayed[appId],
-      );
+      late final GameEntry game;
       if (manual >= 0) {
-        final old = result.removeAt(manual);
-        old.name = name;
-        old.source = game.source;
-        old.lastPlayedAt = game.lastPlayedAt;
-        result.add(old);
-        scannedSteam[appId] = old;
+        game = result.removeAt(manual)
+          ..name = name
+          ..source = GameSource.steam(appId, installed.library.path)
+          ..lastPlayedAt = lastPlayed[appId];
       } else {
-        result.add(game);
-        scannedSteam[appId] = game;
+        game = GameEntry(
+          id: _id(),
+          name: name,
+          source: GameSource.steam(appId, installed.library.path),
+          exePath: detectedExe,
+          selectedProxy: 'version.dll',
+          createdAt: DateTime.now().toUtc(),
+          lastPlayedAt: lastPlayed[appId],
+        );
       }
+      result.add(game);
+      scannedSteam[appId] = game;
     }
     return result;
   }

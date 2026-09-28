@@ -109,10 +109,10 @@ class _GameSettingsState extends State<GameSettings> {
         widget.hasMod && v.target == TargetState.ready && !widget.busy;
     final manageableConfig = _hasManageableConfig(v.mod);
     final canEdit = manageableConfig && !widget.busy;
-    final needsUpdate = _needsDriverUpdate(
-      v.mod,
-      widget.manager.info.installedVersion,
-    );
+    final canUpdate =
+        canInstall &&
+        proxy != null &&
+        _needsDriverUpdate(v.mod, widget.manager.info.installedVersion);
     return Card(
       child: ListView(
         padding: const EdgeInsets.all(25),
@@ -135,12 +135,10 @@ class _GameSettingsState extends State<GameSettings> {
                 ? Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      if (needsUpdate)
+                      if (canUpdate)
                         TextButton(
                           style: _inlineActionButtonStyle,
-                          onPressed: canInstall && proxy != null
-                              ? () => install(c, v)
-                              : null,
+                          onPressed: () => install(c, v),
                           child: const Text('更新'),
                         ),
                       if (v.mod.canUninstall)
