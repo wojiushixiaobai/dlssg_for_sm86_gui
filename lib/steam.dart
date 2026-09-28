@@ -4,14 +4,11 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
-import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:win32/win32.dart';
 
 import 'models.dart';
 import 'vdf.dart';
-
-final _storeArtworkRequests = <int, Future<String?>>{};
 
 enum SteamArtworkKind { card, icon }
 
@@ -63,7 +60,9 @@ class SteamArtworkCache {
           }
         }
         final uri = Uri.tryParse(saved);
-        if (uri != null && uri.hasScheme) {
+        if (uri != null &&
+            (uri.scheme == 'http' || uri.scheme == 'https') &&
+            uri.host.isNotEmpty) {
           // A previous fallback URL must not hide artwork that Steam has
           // subsequently populated in its local library cache.
           final local = _firstLocalPath(appId, kind);
@@ -106,9 +105,15 @@ class SteamArtworkCache {
     final next = current < 0
         ? candidates.firstOrNull
         : candidates.elementAtOrNull(current + 1);
-    if (next == null) return null;
+    if (next == null) {
+      _requests.remove(_sourceKey(appId));
+      await _remove(appId);
+      return null;
+    }
+    final source = SteamArtworkSource.network(next);
+    _requests[_sourceKey(appId)] = Future.value(source);
     await _store(appId, next);
-    return SteamArtworkSource.network(next);
+    return source;
   }
 
   Future<Map<String, String>> _readSources() {
@@ -168,47 +173,6 @@ class SteamArtworkCache {
     await temporary.writeAsString(contents, flush: true);
     if (await sourceFile.exists()) await sourceFile.delete();
     await temporary.rename(sourceFile.path);
-  }
-}
-
-Future<String?> steamArtworkUrl(int appId, {http.Client? client}) {
-  if (client != null) return _fetchSteamArtworkUrl(appId, client);
-  final existing = _storeArtworkRequests[appId];
-  if (existing != null) return existing;
-  final request = _fetchSteamArtworkUrl(
-    appId,
-    http.Client(),
-    closeClient: true,
-  );
-  _storeArtworkRequests[appId] = request;
-  return request;
-}
-
-Future<String?> _fetchSteamArtworkUrl(
-  int appId,
-  http.Client client, {
-  bool closeClient = false,
-}) async {
-  try {
-    final response = await client.get(
-      Uri.https('store.steampowered.com', '/api/appdetails', {
-        'appids': '$appId',
-      }),
-    );
-    if (response.statusCode != 200) return null;
-    final body = jsonDecode(response.body);
-    if (body is! Map) return null;
-    final app = body['$appId'];
-    if (app is! Map || app['success'] != true || app['data'] is! Map) {
-      return null;
-    }
-    final image = (app['data'] as Map)['header_image']?.toString();
-    final uri = image == null ? null : Uri.tryParse(image);
-    return uri != null && uri.hasScheme ? image : null;
-  } catch (_) {
-    return null;
-  } finally {
-    if (closeClient) client.close();
   }
 }
 

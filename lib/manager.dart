@@ -798,10 +798,12 @@ class ModManager {
       (await _latestRelease()).version;
 
   Future<_LatestRelease> _latestRelease() async {
-    final response = await client.get(
-      Uri.parse(latestReleaseUrl),
-      headers: {'User-Agent': 'DLSSG-SM86-Manager'},
-    );
+    final response = await client
+        .get(
+          Uri.parse(latestReleaseUrl),
+          headers: {'User-Agent': 'DLSSG-SM86-Manager'},
+        )
+        .timeout(const Duration(seconds: 15));
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw StateError('无法获取上游最新 Release：HTTP ${response.statusCode}');
     }
@@ -830,18 +832,23 @@ class ModManager {
     final legacyArchiveFile = File(
       p.join(releaseDirectory.path, modArchiveName),
     );
+    File? importedArchive;
     await archiveDirectory.create(recursive: true);
     if (await archiveFile.exists()) {
     } else if (await previousCacheArchive.exists() &&
         await previousCacheVersion.exists() &&
         (await previousCacheVersion.readAsString()).trim() == version) {
       await copyAtomic(previousCacheArchive, archiveFile);
+      importedArchive = previousCacheArchive;
     } else if (previousVersion == version && await legacyArchiveFile.exists()) {
       await copyAtomic(legacyArchiveFile, archiveFile);
+      importedArchive = legacyArchiveFile;
     } else {
       final request = http.Request('GET', release.archiveUrl)
         ..headers['User-Agent'] = 'DLSSG-SM86-Manager';
-      final download = await client.send(request);
+      final download = await client
+          .send(request)
+          .timeout(const Duration(seconds: 30));
       if (download.statusCode < 200 || download.statusCode >= 300) {
         throw StateError(
           '下载上游 Release $version 的 tar.gz 失败：HTTP ${download.statusCode}',
@@ -863,7 +870,7 @@ class ModManager {
       );
       try {
         await sink.addStream(
-          download.stream.map((chunk) {
+          download.stream.timeout(const Duration(seconds: 30)).map((chunk) {
             downloadedBytes += chunk.length;
             onProgress?.call(
               DownloadProgress(
@@ -899,14 +906,19 @@ class ModManager {
         totalBytes: archiveSize,
       ),
     );
-    if (await releaseDirectory.exists()) {
-      await releaseDirectory.delete(recursive: true);
-    }
     final stage = Directory(p.join(releaseRoot.path, '.stage-${_uuid.v4()}'));
+    final rollback = Directory(
+      p.join(releaseRoot.path, '.previous-${_uuid.v4()}'),
+    );
     final temporaryTar = File(
       p.join(releaseRoot.path, '.archive-${_uuid.v4()}.tar'),
     );
     await stage.create(recursive: true);
+    final originalVersion = db.installedVersion;
+    var validated = false;
+    var movedPrevious = false;
+    var activated = false;
+    var committed = false;
     try {
       final compressedInput = InputFileStream(archiveFile.path);
       final tarOutput = OutputFileStream(temporaryTar.path);
@@ -953,16 +965,44 @@ class ModManager {
       if (!await ini.exists()) {
         throw StateError('上游 Release 缺少 dlssg_sm86.ini。');
       }
+      validated = true;
+      if (await releaseDirectory.exists()) {
+        await releaseDirectory.rename(rollback.path);
+        movedPrevious = true;
+      }
       await stage.rename(releaseDirectory.path);
+      activated = true;
       await _ensureGlobalIniFromPackage();
       db.installedVersion = version;
       await _save();
+      committed = true;
       return version;
-    } catch (_) {
-      if (await stage.exists()) await stage.delete(recursive: true);
+    } catch (error) {
+      db.installedVersion = originalVersion;
+      if (activated) await releaseDirectory.delete(recursive: true);
+      if (movedPrevious) await rollback.rename(releaseDirectory.path);
+      // Discard malformed or incomplete packages so retry can download again.
+      // Filesystem errors may be transient and do not prove a bad archive.
+      if (!validated && error is! FileSystemException) {
+        if (await archiveFile.exists()) await archiveFile.delete();
+        if (importedArchive != null && await importedArchive.exists()) {
+          await importedArchive.delete();
+        }
+      }
       rethrow;
     } finally {
-      if (await temporaryTar.exists()) await temporaryTar.delete();
+      // Cleanup must not turn a committed update into a reported failure.
+      for (final disposable in <FileSystemEntity>[
+        stage,
+        temporaryTar,
+        if (committed) rollback,
+      ]) {
+        try {
+          if (await disposable.exists()) {
+            await disposable.delete(recursive: true);
+          }
+        } on FileSystemException catch (_) {}
+      }
     }
   }
 }

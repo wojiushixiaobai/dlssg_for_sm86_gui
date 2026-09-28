@@ -83,6 +83,86 @@ void main() {
         return download();
       });
 
+  for (final invalid in ['gzip', 'missing-dll', 'missing-ini']) {
+    test('更新包校验失败保留旧包并允许重新下载：$invalid', () async {
+      var requests = 0;
+      final badBytes = switch (invalid) {
+        'gzip' => [1, 2, 3],
+        'missing-dll' => _archive(omit: 'alternatives/winmm.dll'),
+        _ => _archive(omit: 'dlssg_sm86.ini'),
+      };
+      final manager = await openWithOldPackage(
+        releaseClient(() async {
+          requests++;
+          return Response.bytes(requests == 1 ? badBytes : _archive(), 200);
+        }),
+      );
+      final driver = File(
+        p.join(root.path, 'release', 'dlssg_for_sm86', defaultProxy),
+      );
+
+      await expectLater(manager.refreshModFromGithub(), throwsA(anything));
+      expect(manager.hasModPackage, isTrue);
+      expect(manager.db.installedVersion, 'old');
+      expect(await driver.readAsString(), 'old-driver');
+      expect(
+        Database.fromJsonText(
+          await File(p.join(root.path, 'state.json')).readAsString(),
+        ).installedVersion,
+        'old',
+      );
+      expect(
+        await File(p.join(root.path, 'release', 'new', modArchiveName))
+            .exists(),
+        isFalse,
+      );
+
+      expect(await manager.refreshModFromGithub(), 'new');
+      expect(requests, 2);
+      expect(await driver.readAsString(), 'new-version.dll');
+      expect(
+        await File(p.join(root.path, 'global.ini')).readAsString(),
+        contains('Enabled=0'),
+      );
+      final leftovers = await Directory(p.join(root.path, 'release'))
+          .list()
+          .toList();
+      expect(
+        leftovers.where((file) => p.basename(file.path).startsWith('.')),
+        isEmpty,
+      );
+    });
+  }
+
+  test('保存新版本状态失败会恢复旧目录和版本，已验证缓存仍可复用', () async {
+    var requests = 0;
+    final manager = await openWithOldPackage(
+      releaseClient(() async {
+        requests++;
+        return Response.bytes(_archive(), 200);
+      }),
+    );
+    final state = File(p.join(root.path, 'state.json'));
+    await state.delete();
+    await Directory(state.path).create();
+
+    await expectLater(
+      manager.refreshModFromGithub(),
+      throwsA(isA<FileSystemException>()),
+    );
+    expect(manager.hasModPackage, isTrue);
+    expect(manager.db.installedVersion, 'old');
+    expect(
+      await File(p.join(root.path, 'release', 'dlssg_for_sm86', defaultProxy))
+          .readAsString(),
+      'old-driver',
+    );
+
+    await Directory(state.path).delete();
+    expect(await manager.refreshModFromGithub(), 'new');
+    expect(requests, 1);
+  });
+
   test('已记录的代理升级不重复备份驱动本身', () async {
     final manager = await openWithOldPackage(
       MockClient((_) async => Response('', 404)),
@@ -273,4 +353,37 @@ void main() {
     expect((await manager.listGames()).single.mod.kind, ModStateKind.applied);
   });
 
+  test('失效 Windows 路径不再当作网络地址，回退结果同步内存和磁盘', () async {
+    final sourceFile = File(p.join(root.path, 'artwork.json'));
+    await sourceFile.writeAsString(
+      jsonEncode({'42': r'C:\missing\header.jpg'}),
+    );
+    final cache = SteamArtworkCache(sourceFile, findLocalPaths: (_, _) => []);
+    final first = await cache.load(42);
+    expect(first!.local, isFalse);
+    expect(first.value, steamArtworkUrls(42).first);
+
+    final next = await cache.nextNetworkSource(42, first.value);
+    expect(next!.value, steamArtworkUrls(42)[1]);
+    expect((await cache.load(42))!.value, next.value);
+    final reopened = SteamArtworkCache(
+      sourceFile,
+      findLocalPaths: (_, _) => [],
+    );
+    expect((await reopened.load(42))!.value, next.value);
+  });
+
+  test('所有封面源失败后可以重新加载', () async {
+    final cache = SteamArtworkCache(
+      File(p.join(root.path, 'artwork.json')),
+      findLocalPaths: (_, _) => [],
+    );
+    var source = await cache.load(42);
+    for (final url in steamArtworkUrls(42)) {
+      expect(source!.value, url);
+      source = await cache.nextNetworkSource(42, url);
+    }
+    expect(source, isNull);
+    expect((await cache.load(42))!.value, steamArtworkUrls(42).first);
+  });
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/gestures.dart';
@@ -117,6 +118,42 @@ void main() {
 
     expect(manager.uninstalledProxy, 'winmm.dll');
     expect(manager.uninstallExpectedSha256, 'winmm-hash');
+  });
+
+  testWidgets('版本查询未完成也能显示游戏并完成本地操作，查询结果会缓存', (tester) async {
+    tester.view.physicalSize = const Size(1280, 720);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final version = Completer<String>();
+    final manager = _FakeManager(
+      games: [_hagsGameView()],
+      latestVersion: version.future,
+      failLaunch: false,
+    );
+    await tester.pumpWidget(MaterialApp(home: Shell(manager)));
+    await tester.pump();
+    expect(find.text('HAGS 游戏'), findsOneWidget);
+    expect(manager.latestCalls, 1);
+    await tester.tap(find.text('游戏设置').first);
+    await tester.pump();
+    await tester.tap(find.widgetWithText(TextButton, '启动游戏'));
+    await tester.pump();
+    expect(manager.launchCalls, 1);
+    expect(manager.listCalls, 2);
+    expect(
+      tester
+          .widget<TextButton>(find.widgetWithText(TextButton, '启动游戏'))
+          .onPressed,
+      isNotNull,
+    );
+    expect(manager.latestCalls, 1);
+
+    version.complete('1.0');
+    await tester.pump();
+    await tester.tap(find.text('驱动程序').first);
+    await tester.pump();
+    expect(manager.latestCalls, 1);
   });
 
   testWidgets('首次读取 HAGS 失败后进入游戏设置会重试', (tester) async {
@@ -621,9 +658,16 @@ void main() {
 }
 
 class _FakeManager implements ModManager {
-  _FakeManager({this.games = const []});
+  _FakeManager({
+    this.games = const [],
+    this.latestVersion,
+    this.failLaunch = true,
+  });
 
   final List<GameView> games;
+  final Future<String>? latestVersion;
+  final bool failLaunch;
+  int latestCalls = 0;
   int listCalls = 0;
   int refreshCalls = 0;
   int launchCalls = 0;
@@ -655,6 +699,7 @@ class _FakeManager implements ModManager {
   @override
   Future<void> launchGame(String id) async {
     launchCalls++;
+    if (!failLaunch) return;
     throw ProcessException(
       'game.exe',
       const [],
@@ -672,7 +717,10 @@ class _FakeManager implements ModManager {
   }
 
   @override
-  Future<String> latestDriverVersion() async => '1.0';
+  Future<String> latestDriverVersion() async {
+    latestCalls++;
+    return latestVersion ?? Future.value('1.0');
+  }
 
   @override
   ManagerInfo get info => const ManagerInfo(

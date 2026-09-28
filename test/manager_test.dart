@@ -517,26 +517,6 @@ void main() {
 
       expect(games.where((game) => game.source.appId == 228980), isEmpty);
     });
-    test('通过 Steam 元数据读取带哈希的封面 URL', () async {
-      final url = await steamArtworkUrl(
-        4570720,
-        client: MockClient(
-          (_) async => Response(
-            jsonEncode({
-              '4570720': {
-                'success': true,
-                'data': {
-                  'header_image': 'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4570720/hash/header.jpg',
-                },
-              },
-            }),
-            200,
-          ),
-        ),
-      );
-
-      expect(url, contains('/4570720/hash/header.jpg'));
-    });
     test('Steam 清单快照会记录 libraryfolders 和 appmanifest 的修改时间', () async {
       final root = await Directory.systemTemp.createTemp('dlssg-steam-stamp-');
       addTearDown(() => root.delete(recursive: true));

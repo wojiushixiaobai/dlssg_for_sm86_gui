@@ -250,6 +250,8 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
   String? latestDriverVersion;
   DownloadProgress? downloadProgress;
   bool updateCheckFailed = false;
+  bool _checkingUpdates = false;
+  DateTime? _lastUpdateCheck;
   List<GameView> games = [];
   ManagerInfo? info;
   var hagsStatus = HardwareAcceleratedGpuSchedulingStatus.unavailable;
@@ -268,6 +270,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
       selected = initialGames.isEmpty ? null : initialGames.first.game.id;
     }
     load(preparedGames: initialGames);
+    unawaited(_checkForUpdates());
   }
 
   @override
@@ -314,19 +317,10 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
 
   Future<void> load({List<GameView>? preparedGames}) async {
     final found = preparedGames ?? await widget.manager.listGames();
-    String? latest;
-    var latestFailed = false;
-    try {
-      latest = await widget.manager.latestDriverVersion();
-    } catch (_) {
-      latestFailed = true;
-    }
     if (mounted) {
       setState(() {
         games = found;
         info = widget.manager.info;
-        latestDriverVersion = latest;
-        updateCheckFailed = latestFailed;
         selected = found.any((x) => x.game.id == selected)
             ? selected
             : (found.isEmpty ? null : found.first.game.id);
@@ -334,7 +328,33 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     }
   }
 
-  Future<bool> _runAction(Future<void> Function() job) async {
+  Future<void> _checkForUpdates() async {
+    final lastCheck = _lastUpdateCheck;
+    final cacheDuration = Duration(minutes: updateCheckFailed ? 1 : 30);
+    if (_checkingUpdates ||
+        (lastCheck != null &&
+            DateTime.now().difference(lastCheck) < cacheDuration)) {
+      return;
+    }
+    _checkingUpdates = true;
+    try {
+      final latest = await widget.manager.latestDriverVersion();
+      if (mounted) {
+        setState(() {
+          latestDriverVersion = latest;
+          updateCheckFailed = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => updateCheckFailed = true);
+    } finally {
+      _lastUpdateCheck = DateTime.now();
+      _checkingUpdates = false;
+    }
+  }
+
+  Future<void> act(Future<void> Function() job) async {
+    if (busy) return;
     setState(() {
       busy = true;
       _clearToast();
@@ -343,34 +363,15 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     try {
       await job();
       await load();
-      return true;
     } catch (e) {
       _showToast('操作失败：$e');
-      return false;
     } finally {
       if (mounted) setState(() => busy = false);
     }
   }
 
-  Future<void> act(Future<void> Function() job) async {
-    await _runAction(job);
-  }
-
-  Future<void> launchGame(GameView game) async {
-    setState(() {
-      busy = true;
-      _clearToast();
-      downloadProgress = null;
-    });
-    try {
-      await widget.manager.launchGame(game.game.id);
-      await load();
-    } catch (error) {
-      _showToast('操作失败：$error');
-    } finally {
-      if (mounted) setState(() => busy = false);
-    }
-  }
+  Future<void> launchGame(GameView game) =>
+      act(() => widget.manager.launchGame(game.game.id));
 
   Future<void> removeGame(GameView game) async {
     if (busy) return;
@@ -418,11 +419,18 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
         updateCheckFailed,
         busy,
         () => act(() async {
-          await widget.manager.refreshModFromGithub(
+          final version = await widget.manager.refreshModFromGithub(
             onProgress: (progress) {
               if (mounted) setState(() => downloadProgress = progress);
             },
           );
+          if (mounted) {
+            setState(() {
+              latestDriverVersion = version;
+              updateCheckFailed = false;
+              _lastUpdateCheck = DateTime.now();
+            });
+          }
         }),
         progress: downloadProgress,
       ),
@@ -457,6 +465,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
                 selectedIndex: page,
                 onSelected: (index) => setState(() {
                   page = index;
+                  if (index == 1) unawaited(_checkForUpdates());
                   if (index == 2) _refreshHagsStatus();
                 }),
               ),
@@ -1464,7 +1473,7 @@ class Settings extends StatelessWidget {
                     ),
                   ],
                 )
-              : GlobalSettings(hasMod, manager, act),
+              : GlobalSettings(hasMod, manager, act, busy: busy),
         ),
       ],
     ),
@@ -2656,8 +2665,15 @@ Future<bool> dialog(BuildContext c, String t, String b) async =>
     false;
 
 class GlobalSettings extends StatefulWidget {
-  const GlobalSettings(this.hasMod, this.manager, this.act, {super.key});
+  const GlobalSettings(
+    this.hasMod,
+    this.manager,
+    this.act, {
+    this.busy = false,
+    super.key,
+  });
   final bool hasMod;
+  final bool busy;
   final ModManager manager;
   final Future<void> Function(Future<void> Function()) act;
   @override
@@ -2724,7 +2740,7 @@ class _GlobalSettingsState extends State<GlobalSettings> {
         else
           _DirectDriverSettings(
             config: config!,
-            enabled: true,
+            enabled: !widget.busy,
             onChanged: _save,
           ),
       ],
