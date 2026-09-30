@@ -32,6 +32,7 @@ class Shell extends StatefulWidget {
 }
 
 class _ShellState extends State<Shell> with WidgetsBindingObserver {
+  static const _fileDropChannel = MethodChannel('dlssg/file-drop');
   int page = 0;
   bool gameTab = true, busy = false;
   String? selected, toast;
@@ -51,6 +52,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _fileDropChannel.setMethodCallHandler(_onFileDropCall);
     hagsStatus = _readHagsStatus();
     final initialGames = widget.initialGames;
     if (initialGames != null) {
@@ -67,6 +69,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _fileDropChannel.setMethodCallHandler(null);
     _toastTimer?.cancel();
     super.dispose();
   }
@@ -192,6 +195,68 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
         await widget.manager.setGameExe(game.id, f.path);
       }
     });
+  }
+
+  Future<void> _onFileDropCall(MethodCall call) async {
+    if (call.method != 'files') return;
+    final paths = (call.arguments as List<Object?>)
+        .whereType<String>()
+        .toList();
+    await _addDroppedGames(paths);
+  }
+
+  Future<void> _addDroppedGames(List<String> paths) async {
+    if (paths.isEmpty) return;
+    if (busy) {
+      _showToast('请等待当前操作完成后再拖放游戏。');
+      return;
+    }
+    var failed = 0;
+    String? firstError;
+    String? selectedId;
+    await act(() async {
+      for (final path in paths) {
+        try {
+          final extension = p.windows.extension(path).toLowerCase();
+          if (extension != '.exe' && extension != '.lnk') {
+            throw const FormatException('仅支持 EXE 和快捷方式文件');
+          }
+          final exePath = extension == '.lnk'
+              ? await _fileDropChannel.invokeMethod<String>(
+                  'resolveShortcut',
+                  path,
+                )
+              : path;
+          if (exePath == null ||
+              p.windows.extension(exePath).toLowerCase() != '.exe' ||
+              !await File(exePath).exists()) {
+            throw const FormatException('目标不是有效的 EXE 文件');
+          }
+          final name = p.windows.basenameWithoutExtension(path);
+          final game = await widget.manager.addManualGame(name, exePath);
+          selectedId ??= game.id;
+        } catch (error) {
+          failed++;
+          final reason = switch (error) {
+            FormatException(:final message) => message,
+            PlatformException() => '无法读取快捷方式的目标程序',
+            _ => '$error',
+          };
+          firstError ??= '${p.windows.basename(path)}：$reason';
+        }
+      }
+      if (selectedId != null && mounted) {
+        setState(() {
+          selected = selectedId;
+          page = 2;
+          gameTab = true;
+          _refreshHagsStatus();
+        });
+      }
+    });
+    if (failed > 0 && mounted) {
+      _showToast('有 $failed 个文件未添加：$firstError');
+    }
   }
 
   GameView? get current {

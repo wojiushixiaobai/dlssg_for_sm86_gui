@@ -4,6 +4,8 @@
 #include <flutter/dart_project.h>
 #include <flutter/flutter_view_controller.h>
 #include <flutter/method_channel.h>
+#include <commctrl.h>
+#include <shellapi.h>
 
 #include <memory>
 
@@ -24,6 +26,11 @@ class FlutterWindow : public Win32Window {
                          LPARAM const lparam) noexcept override;
 
  private:
+  static LRESULT CALLBACK DropSubclassProc(HWND window, UINT message,
+                                           WPARAM wparam, LPARAM lparam,
+                                           UINT_PTR id, DWORD_PTR data);
+  void HandleFileDrop(HDROP drop);
+
   // The project to run.
   flutter::DartProject project_;
 
@@ -33,6 +40,9 @@ class FlutterWindow : public Win32Window {
   // Serves high-resolution application icons embedded in game executables.
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
       executable_icon_channel_;
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      file_drop_channel_;
+  HWND flutter_view_window_ = nullptr;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

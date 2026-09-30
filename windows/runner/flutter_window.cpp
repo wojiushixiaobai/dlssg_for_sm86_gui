@@ -1,6 +1,8 @@
 #include "flutter_window.h"
 
 #include <flutter/standard_method_codec.h>
+#include <shellapi.h>
+#include <shobjidl.h>
 
 #include <cstring>
 #include <optional>
@@ -29,6 +31,44 @@ std::wstring Utf8ToWide(const std::string &value) {
   MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()),
                       result.data(), length);
   return result;
+}
+
+std::string WideToUtf8(const std::wstring &value) {
+  if (value.empty()) return {};
+  const int length = WideCharToMultiByte(CP_UTF8, 0, value.data(),
+                                         static_cast<int>(value.size()),
+                                         nullptr, 0, nullptr, nullptr);
+  if (length == 0) return {};
+  std::string result(length, '\0');
+  WideCharToMultiByte(CP_UTF8, 0, value.data(),
+                      static_cast<int>(value.size()), result.data(), length,
+                      nullptr, nullptr);
+  return result;
+}
+
+std::wstring ResolveShortcut(const std::wstring &path) {
+  IShellLinkW *link = nullptr;
+  if (FAILED(CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER,
+                              IID_IShellLinkW,
+                              reinterpret_cast<void **>(&link)))) {
+    return {};
+  }
+  IPersistFile *persist = nullptr;
+  std::wstring target;
+  if (SUCCEEDED(link->QueryInterface(IID_IPersistFile,
+                                     reinterpret_cast<void **>(&persist)))) {
+    if (SUCCEEDED(persist->Load(path.c_str(), STGM_READ))) {
+      std::vector<wchar_t> buffer(32768, L'\0');
+      if (SUCCEEDED(link->GetPath(buffer.data(),
+                                  static_cast<int>(buffer.size()), nullptr,
+                                  0))) {
+        target = buffer.data();
+      }
+    }
+    persist->Release();
+  }
+  link->Release();
+  return target;
 }
 
 std::vector<uint8_t> ExtractExecutableIcon(const std::wstring &path,
@@ -129,7 +169,35 @@ bool FlutterWindow::OnCreate() {
         icon[flutter::EncodableValue("pixels")] = flutter::EncodableValue(pixels);
         result->Success(flutter::EncodableValue(icon));
       });
-  SetChildContent(flutter_controller_->view()->GetNativeWindow());
+  file_drop_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(), "dlssg/file-drop",
+          &flutter::StandardMethodCodec::GetInstance());
+  file_drop_channel_->SetMethodCallHandler(
+      [](const auto &call, auto result) {
+        if (call.method_name() != "resolveShortcut") {
+          result->NotImplemented();
+          return;
+        }
+        const auto *path = std::get_if<std::string>(call.arguments());
+        if (path == nullptr) {
+          result->Error("invalid-arguments");
+          return;
+        }
+        const auto target = ResolveShortcut(Utf8ToWide(*path));
+        if (target.empty()) {
+          result->Error("invalid-shortcut", "Shortcut target is unavailable");
+          return;
+        }
+        result->Success(flutter::EncodableValue(WideToUtf8(target)));
+      });
+  flutter_view_window_ = flutter_controller_->view()->GetNativeWindow();
+  SetChildContent(flutter_view_window_);
+  DragAcceptFiles(GetHandle(), TRUE);
+  if (SetWindowSubclass(flutter_view_window_, DropSubclassProc, 1,
+                        reinterpret_cast<DWORD_PTR>(this))) {
+    DragAcceptFiles(flutter_view_window_, TRUE);
+  }
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     this->Show();
@@ -144,11 +212,47 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  if (flutter_view_window_ != nullptr && IsWindow(flutter_view_window_)) {
+    DragAcceptFiles(flutter_view_window_, FALSE);
+    RemoveWindowSubclass(flutter_view_window_, DropSubclassProc, 1);
+  }
+  flutter_view_window_ = nullptr;
+  if (GetHandle() != nullptr) DragAcceptFiles(GetHandle(), FALSE);
+  file_drop_channel_ = nullptr;
+  executable_icon_channel_ = nullptr;
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
 
   Win32Window::OnDestroy();
+}
+
+LRESULT CALLBACK FlutterWindow::DropSubclassProc(
+    HWND window, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR id,
+    DWORD_PTR data) {
+  if (message == WM_DROPFILES) {
+    reinterpret_cast<FlutterWindow *>(data)->HandleFileDrop(
+        reinterpret_cast<HDROP>(wparam));
+    return 0;
+  }
+  return DefSubclassProc(window, message, wparam, lparam);
+}
+
+void FlutterWindow::HandleFileDrop(HDROP drop) {
+  const UINT count = DragQueryFileW(drop, 0xFFFFFFFF, nullptr, 0);
+  flutter::EncodableList paths;
+  for (UINT i = 0; i < count; ++i) {
+    const UINT length = DragQueryFileW(drop, i, nullptr, 0);
+    std::wstring path(length + 1, L'\0');
+    DragQueryFileW(drop, i, path.data(), length + 1);
+    path.resize(length);
+    paths.emplace_back(WideToUtf8(path));
+  }
+  DragFinish(drop);
+  if (file_drop_channel_ && !paths.empty()) {
+    file_drop_channel_->InvokeMethod(
+        "files", std::make_unique<flutter::EncodableValue>(paths));
+  }
 }
 
 LRESULT
@@ -166,6 +270,9 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   }
 
   switch (message) {
+    case WM_DROPFILES:
+      HandleFileDrop(reinterpret_cast<HDROP>(wparam));
+      return 0;
     case WM_FONTCHANGE:
       flutter_controller_->engine()->ReloadSystemFonts();
       break;
