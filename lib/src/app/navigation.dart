@@ -57,7 +57,7 @@ class _NvidiaNavigationItemState extends State<_NvidiaNavigationItem> {
 
   @override
   Widget build(BuildContext context) => SizedBox(
-    height: 85,
+    height: _navigationItemHeight,
     child: MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => hovered = true),
@@ -73,7 +73,7 @@ class _NvidiaNavigationItemState extends State<_NvidiaNavigationItem> {
               duration: const Duration(milliseconds: 120),
               curve: Curves.easeOut,
               width: 5,
-              height: 70,
+              height: _navigationHighlightHeight,
               decoration: BoxDecoration(
                 color: widget.selected ? _nvidiaGreen : Colors.transparent,
                 borderRadius: BorderRadius.circular(3),
@@ -83,7 +83,7 @@ class _NvidiaNavigationItemState extends State<_NvidiaNavigationItem> {
             Expanded(
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 120),
-                height: 70,
+                height: _navigationHighlightHeight,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                   color: hovered ? _nvidiaMenuActive : Colors.transparent,

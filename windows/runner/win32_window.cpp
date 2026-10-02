@@ -15,16 +15,19 @@ namespace {
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
 #endif
+#ifndef DWMWA_CAPTION_COLOR
+#define DWMWA_CAPTION_COLOR 35
+#endif
+#ifndef DWMWA_TEXT_COLOR
+#define DWMWA_TEXT_COLOR 36
+#endif
 
 constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
 
-/// Registry key for app theme preference.
-///
-/// A value of 0 indicates apps should use dark mode. A non-zero or missing
-/// value indicates apps should use light mode.
-constexpr const wchar_t kGetPreferredBrightnessRegKey[] =
-  L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
-constexpr const wchar_t kGetPreferredBrightnessRegValue[] = L"AppsUseLightTheme";
+// Keep these in sync with _nvidiaAppBackground and _nvidiaText in
+// lib/src/shared/theme.dart.
+constexpr COLORREF kAppBackgroundColor = RGB(0x1b, 0x1b, 0x1b);
+constexpr COLORREF kAppTextColor = RGB(0xf2, 0xf2, 0xf2);
 
 // The number of Win32Window objects that currently exist.
 static int g_active_window_count = 0;
@@ -214,6 +217,7 @@ Win32Window::MessageHandler(HWND hwnd,
       return 0;
 
     case WM_DWMCOLORIZATIONCOLORCHANGED:
+    case WM_THEMECHANGED:
       UpdateTheme(hwnd);
       return 0;
   }
@@ -273,16 +277,15 @@ void Win32Window::OnDestroy() {
 }
 
 void Win32Window::UpdateTheme(HWND const window) {
-  DWORD light_mode;
-  DWORD light_mode_size = sizeof(light_mode);
-  LSTATUS result = RegGetValue(HKEY_CURRENT_USER, kGetPreferredBrightnessRegKey,
-                               kGetPreferredBrightnessRegValue,
-                               RRF_RT_REG_DWORD, nullptr, &light_mode,
-                               &light_mode_size);
+  // The app always uses a dark theme, independently of the system preference.
+  const BOOL enable_dark_mode = TRUE;
+  DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE,
+                        &enable_dark_mode, sizeof(enable_dark_mode));
 
-  if (result == ERROR_SUCCESS) {
-    BOOL enable_dark_mode = light_mode == 0;
-    DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE,
-                          &enable_dark_mode, sizeof(enable_dark_mode));
-  }
+  // Custom caption colors are supported on Windows 11 and later. Older
+  // versions ignore these attributes and retain the dark-mode decoration.
+  DwmSetWindowAttribute(window, DWMWA_CAPTION_COLOR,
+                        &kAppBackgroundColor, sizeof(kAppBackgroundColor));
+  DwmSetWindowAttribute(window, DWMWA_TEXT_COLOR,
+                        &kAppTextColor, sizeof(kAppTextColor));
 }

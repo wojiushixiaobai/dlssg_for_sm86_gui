@@ -335,7 +335,13 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
                 child: Column(
                   children: [
                     Container(
-                      height: 70,
+                      height: _navigationHighlightHeight,
+                      margin: const EdgeInsets.only(
+                        top:
+                            (_navigationItemHeight -
+                                _navigationHighlightHeight) /
+                            2,
+                      ),
                       alignment: Alignment.centerLeft,
                       padding: const EdgeInsets.symmetric(horizontal: 30),
                       color: _nvidiaHeader,
