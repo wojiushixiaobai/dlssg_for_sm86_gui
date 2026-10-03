@@ -30,36 +30,44 @@ class Settings extends StatelessWidget {
   final HardwareAcceleratedGpuSchedulingStatus hagsStatus;
   @override
   Widget build(BuildContext c) => Padding(
-    padding: const EdgeInsets.fromLTRB(30, 0, 30, 30),
+    padding: const EdgeInsets.fromLTRB(24, 18, 24, 24),
     child: Column(
       children: [
-        Row(
-          children: [
-            _SettingsTab('程序设置', gameTab, () => onTab(true)),
-            _SettingsTab('全局设置', !gameTab, () => onTab(false)),
-          ],
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: _appBackground,
+              borderRadius: BorderRadius.circular(11),
+              border: Border.all(color: _surfaceBorder),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _SettingsTab('程序设置', gameTab, () => onTab(true)),
+                _SettingsTab('全局设置', !gameTab, () => onTab(false)),
+              ],
+            ),
+          ),
         ),
-        const Divider(height: 1),
         if (!hasMod)
-          const Padding(padding: EdgeInsets.only(top: 13), child: Lock()),
-        const SizedBox(height: 15),
+          const Padding(padding: EdgeInsets.only(top: 14), child: Lock()),
+        const SizedBox(height: 16),
         Expanded(
-          child: gameTab
-              ? Row(
-                  children: [
-                    SizedBox(
-                      width: 330,
-                      child: GameList(
+          child: _PageEntrance(
+            key: ValueKey(gameTab),
+            child: gameTab
+                ? LayoutBuilder(
+                    builder: (context, constraints) {
+                      final list = GameList(
                         games,
                         selected?.game.id,
                         onSelect,
                         () => choose(),
                         remove,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: GameSettings(
+                      );
+                      final detail = GameSettings(
                         selected,
                         hasMod,
                         busy,
@@ -68,67 +76,70 @@ class Settings extends StatelessWidget {
                         act,
                         launch: launch,
                         hagsStatus: hagsStatus,
-                      ),
-                    ),
-                  ],
-                )
-              : GlobalSettings(hasMod, manager, act, busy: busy),
+                      );
+                      if (constraints.maxWidth < 760) {
+                        return Column(
+                          children: [
+                            SizedBox(
+                              height: constraints.maxHeight < 420 ? 150 : 200,
+                              child: list,
+                            ),
+                            const SizedBox(height: 12),
+                            Expanded(child: detail),
+                          ],
+                        );
+                      }
+                      return Row(
+                        children: [
+                          SizedBox(width: 280, child: list),
+                          const SizedBox(width: 16),
+                          Expanded(child: detail),
+                        ],
+                      );
+                    },
+                  )
+                : GlobalSettings(hasMod, manager, act, busy: busy),
+          ),
         ),
       ],
     ),
   );
 }
 
-class _SettingsTab extends StatefulWidget {
+class _SettingsTab extends StatelessWidget {
   const _SettingsTab(this.label, this.selected, this.tap);
   final String label;
   final bool selected;
   final VoidCallback tap;
-
   @override
-  State<_SettingsTab> createState() => _SettingsTabState();
-}
-
-class _SettingsTabState extends State<_SettingsTab> {
-  bool hovered = false;
-
-  @override
-  Widget build(BuildContext c) => SizedBox(
-    width: 130,
-    height: 60,
-    child: MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => hovered = true),
-      onExit: (_) => setState(() => hovered = false),
-      child: Semantics(
-        button: true,
-        selected: widget.selected,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: widget.tap,
-          child: Container(
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: hovered ? _nvidiaMenuActive : Colors.transparent,
-              border: Border(
-                bottom: BorderSide(
-                  color: widget.selected
-                      ? const Color(0xff76b900)
-                      : Colors.transparent,
-                  width: 3,
+  Widget build(BuildContext context) => Semantics(
+    selected: selected,
+    child: AnimatedContainer(
+      duration: _motion(context),
+      curve: Curves.easeOutCubic,
+      decoration: BoxDecoration(
+        color: selected ? _selectionBackground : Colors.transparent,
+        borderRadius: BorderRadius.circular(7),
+        boxShadow: selected
+            ? const [
+                BoxShadow(
+                  color: Color(0x22000000),
+                  blurRadius: 5,
+                  offset: Offset(0, 2),
                 ),
-              ),
-            ),
-            child: Text(
-              widget.label,
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: _uiEmphasisWeight,
-                color: widget.selected ? Colors.white : Colors.white60,
-              ),
-            ),
-          ),
+              ]
+            : [],
+      ),
+      child: TextButton(
+        onPressed: tap,
+        style: TextButton.styleFrom(
+          backgroundColor: Colors.transparent,
+          side: BorderSide.none,
+          foregroundColor: selected ? _primaryText : _secondaryText,
+          minimumSize: const Size(112, 34),
+          padding: const EdgeInsets.symmetric(horizontal: 18),
         ),
+        child: Text(label),
       ),
     ),
   );
@@ -139,16 +150,22 @@ class Lock extends StatelessWidget {
   @override
   Widget build(BuildContext c) => Container(
     width: double.infinity,
-    padding: const EdgeInsets.all(12),
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
     decoration: BoxDecoration(
-      color: const Color(0xff40351c),
-      borderRadius: BorderRadius.circular(8),
+      color: const Color(0xff363127),
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(color: const Color(0xff514637)),
     ),
     child: const Row(
       children: [
-        Icon(Icons.lock),
-        SizedBox(width: 9),
-        Text('配置功能已锁定：请先在“驱动程序”页面下载并验证 dlssg_for_sm86。'),
+        Icon(Icons.lock_outline_rounded, size: 17, color: Color(0xffe5c590)),
+        SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            '配置功能已锁定：请先在“驱动程序”页面下载并验证 dlssg_for_sm86。',
+            style: TextStyle(fontSize: 12, color: Color(0xffe5d1b0)),
+          ),
+        ),
       ],
     ),
   );

@@ -53,11 +53,11 @@ class _DriverDownloadProgress extends StatelessWidget {
           LinearProgressIndicator(
             value: verifying ? 1 : fraction,
             minHeight: 4,
-            color: _nvidiaGreen,
-            backgroundColor: const Color(0xff3b3b3b),
+            color: _accent,
+            backgroundColor: _raisedSurface,
           ),
           const SizedBox(height: 6),
-          Text(detail, style: const TextStyle(color: _nvidiaMutedText)),
+          Text(detail, style: const TextStyle(color: _secondaryText)),
         ],
       ),
     );
@@ -100,14 +100,7 @@ class Drivers extends StatelessWidget {
         ? '请检查网络连接后重试。'
         : latestVersion != null
         ? '最新版本：$latestVersion'
-        : '正在读取上游 latest Release。';
-    final pageStatus = updateCheckFailed
-        ? '更新检查失败'
-        : updateAvailable
-        ? '有可用更新'
-        : upToDate
-        ? '驱动程序已是最新版本'
-        : '检查更新中';
+        : '正在获取最新版本信息…';
     final downloadLabel = updateAvailable
         ? '下载'
         : ready
@@ -118,15 +111,16 @@ class Drivers extends StatelessWidget {
       children: [
         Text(
           updateAvailable ? '新 - DLSSG for SM86 驱动程序' : 'DLSSG for SM86 驱动程序',
-          style: const TextStyle(fontSize: 21, fontWeight: _uiEmphasisWeight),
+          style: const TextStyle(fontSize: 16, fontWeight: _uiEmphasisWeight),
         ),
         const SizedBox(height: 3),
-        Text(updateDetail, style: const TextStyle(color: _nvidiaMutedText)),
+        Text(updateDetail, style: const TextStyle(color: _secondaryText)),
         const SizedBox(height: 4),
-        Row(
+        Wrap(
+          spacing: 8,
+          runSpacing: 4,
           children: [
-            const Text('已安装版本', style: TextStyle(color: _nvidiaMutedText)),
-            const SizedBox(width: 8),
+            const Text('已安装版本', style: TextStyle(color: _secondaryText)),
             Text(installedVersion ?? '尚未安装'),
           ],
         ),
@@ -136,40 +130,37 @@ class Drivers extends StatelessWidget {
         ? _DriverDownloadProgress(progress)
         : Align(
             alignment: Alignment.centerRight,
-            child: FilledButton(
-              onPressed: download,
-              style: FilledButton.styleFrom(
-                backgroundColor: _nvidiaGreen,
-                foregroundColor: Colors.black,
-                minimumSize: const Size(80, 44),
-              ),
-              child: Text(downloadLabel),
-            ),
+            child: DesktopButton(onPressed: download, label: downloadLabel),
           );
     return ListView(
-      padding: const EdgeInsets.fromLTRB(30, 18, 30, 30),
+      padding: const EdgeInsets.fromLTRB(24, 24, 24, 30),
       children: [
         Row(
           children: [
-            Text(
-              pageStatus,
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: _uiEmphasisWeight,
+            Icon(
+              updateCheckFailed
+                  ? Icons.cloud_off_rounded
+                  : upToDate
+                  ? Icons.check_circle_outline_rounded
+                  : Icons.system_update_alt_rounded,
+              size: 18,
+              color: upToDate ? _success : _accent,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                updateTitle,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: _uiEmphasisWeight,
+                ),
               ),
             ),
-            const Spacer(),
-            const Text(
-              'DLSSG for SM86 驱动程序',
-              style: TextStyle(color: _nvidiaMutedText, fontSize: 16),
-            ),
-            const SizedBox(width: 12),
-            const Icon(Icons.expand_more, color: _nvidiaMutedText),
           ],
         ),
         const Divider(height: 26),
         LayoutBuilder(
-          builder: (context, constraints) => constraints.maxWidth < 920
+          builder: (context, constraints) => constraints.maxWidth < 680
               ? Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -183,42 +174,27 @@ class Drivers extends StatelessWidget {
                   children: [
                     Expanded(child: updateInfo),
                     const SizedBox(width: 34),
-                    SizedBox(width: 520, child: downloadControl),
+                    SizedBox(width: 250, child: downloadControl),
                   ],
                 ),
         ),
-        const SizedBox(height: 18),
-        _DriverUpdateHero(
-          title: updateTitle,
-          detail: updateCheckFailed
-              ? '暂时无法获取上游版本信息。恢复网络后可再次下载并校验驱动程序。'
-              : '下载经过校验的最新版驱动程序包，为支持的游戏启用 DLSSG for SM86。',
-        ),
-        const SizedBox(height: 28),
+        const SizedBox(height: 24),
         Container(
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-          decoration: const BoxDecoration(
-            border: Border(left: BorderSide(color: _nvidiaGreen, width: 5)),
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: _surface,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: _surfaceBorder),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
                 '最新版本会从 sdli1995/dlssg_for_sm86 的 GitHub latest Release 获取。下载完成后会校验所需 DLL 并缓存安装包；不会改动已安装游戏的 INI。',
-                style: TextStyle(color: _nvidiaMutedText, height: 1.55),
+                style: TextStyle(color: _secondaryText, height: 1.55),
               ),
               const SizedBox(height: 5),
-              TextButton(
-                onPressed: _openInstallationGuide,
-                style: TextButton.styleFrom(
-                  foregroundColor: _nvidiaText,
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                ),
-                child: const Text(
-                  '了解安装方式',
-                  style: TextStyle(fontWeight: _uiEmphasisWeight),
-                ),
-              ),
+              DesktopButton(onPressed: _openInstallationGuide, label: '了解安装方式'),
             ],
           ),
         ),
@@ -227,111 +203,14 @@ class Drivers extends StatelessWidget {
         const SizedBox(height: 15),
         Text(
           ready ? '已安装 - DLSSG for SM86 驱动程序' : '尚未安装 - DLSSG for SM86 驱动程序',
-          style: const TextStyle(fontSize: 19, fontWeight: _uiEmphasisWeight),
+          style: const TextStyle(fontSize: 16, fontWeight: _uiEmphasisWeight),
         ),
         const SizedBox(height: 3),
         Text(
           installedVersion == null ? '版本：尚未安装' : '版本：$installedVersion',
-          style: const TextStyle(color: _nvidiaMutedText),
+          style: const TextStyle(color: _secondaryText),
         ),
       ],
     );
   }
-}
-
-class _DriverUpdateHero extends StatelessWidget {
-  const _DriverUpdateHero({required this.title, required this.detail});
-
-  final String title;
-  final String detail;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    constraints: const BoxConstraints(minHeight: 224),
-    clipBehavior: Clip.antiAlias,
-    decoration: BoxDecoration(
-      color: const Color(0xff080a0b),
-      borderRadius: BorderRadius.circular(9),
-      border: Border.all(color: const Color(0xff242424)),
-    ),
-    child: Stack(
-      children: [
-        Positioned(
-          right: -70,
-          top: -120,
-          child: Container(
-            width: 440,
-            height: 440,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(
-                colors: [
-                  _nvidiaGreen.withValues(alpha: 0.22),
-                  const Color(0xff101a0c).withValues(alpha: 0.1),
-                  Colors.transparent,
-                ],
-                stops: const [0, .45, 1],
-              ),
-            ),
-          ),
-        ),
-        Row(
-          children: [
-            Expanded(
-              flex: 4,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(100, 32, 28, 28),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'DLSSG for SM86\n驱动程序更新',
-                      style: const TextStyle(
-                        fontSize: 27,
-                        fontWeight: _uiEmphasisWeight,
-                        height: 1.3,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        color: _nvidiaGreen,
-                        fontWeight: _uiEmphasisWeight,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      detail,
-                      style: const TextStyle(
-                        color: _nvidiaMutedText,
-                        height: 1.5,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            Expanded(
-              flex: 5,
-              child: Center(
-                child: Icon(
-                  title.contains('失败') ? Icons.error_outline : Icons.memory,
-                  size: 96,
-                  color: _nvidiaGreen.withValues(alpha: 0.75),
-                ),
-              ),
-            ),
-          ],
-        ),
-        const Positioned(
-          left: 42,
-          top: 0,
-          bottom: 0,
-          child: VerticalDivider(width: 1, thickness: 3, color: _nvidiaGreen),
-        ),
-      ],
-    ),
-  );
 }

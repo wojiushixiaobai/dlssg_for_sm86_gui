@@ -27,7 +27,12 @@ void main() {
     final manager = _FakeManager(games: [game]);
     await tester.pumpWidget(MaterialApp(home: Shell(manager)));
     await tester.pump();
-    await tester.tap(find.text('游戏设置').first);
+    await tester.tap(
+      find.descendant(
+        of: find.byType(DesktopNavigation),
+        matching: find.text('游戏'),
+      ),
+    );
     await tester.pump();
     expect(find.text('未安装'), findsWidgets);
     expect(find.widgetWithText(TextButton, '卸载'), findsNothing);
@@ -56,7 +61,12 @@ void main() {
     final manager = _FakeManager(games: [game]);
     await tester.pumpWidget(MaterialApp(home: Shell(manager)));
     await tester.pump();
-    await tester.tap(find.text('游戏设置').first);
+    await tester.tap(
+      find.descendant(
+        of: find.byType(DesktopNavigation),
+        matching: find.text('游戏'),
+      ),
+    );
     await tester.pump();
 
     expect(find.text('已安装：未知版本'), findsWidgets);
@@ -97,7 +107,12 @@ void main() {
     final manager = _FakeManager(games: [game]);
     await tester.pumpWidget(MaterialApp(home: Shell(manager)));
     await tester.pump();
-    await tester.tap(find.text('游戏设置').first);
+    await tester.tap(
+      find.descendant(
+        of: find.byType(DesktopNavigation),
+        matching: find.text('游戏'),
+      ),
+    );
     await tester.pump();
 
     expect(find.text('请选择代理 DLL'), findsOneWidget);
@@ -135,7 +150,12 @@ void main() {
     await tester.pump();
     expect(find.text('HAGS 游戏'), findsOneWidget);
     expect(manager.latestCalls, 1);
-    await tester.tap(find.text('游戏设置').first);
+    await tester.tap(
+      find.descendant(
+        of: find.byType(DesktopNavigation),
+        matching: find.text('游戏'),
+      ),
+    );
     await tester.pump();
     await tester.tap(find.widgetWithText(TextButton, '启动游戏'));
     await tester.pump();
@@ -151,7 +171,12 @@ void main() {
 
     version.complete('1.0');
     await tester.pump();
-    await tester.tap(find.text('驱动程序').first);
+    await tester.tap(
+      find.descendant(
+        of: find.byType(DesktopNavigation),
+        matching: find.text('驱动'),
+      ),
+    );
     await tester.pump();
     expect(manager.latestCalls, 1);
   });
@@ -180,7 +205,12 @@ void main() {
     await tester.pump();
 
     status = HardwareAcceleratedGpuSchedulingStatus.enabled;
-    await tester.tap(find.text('游戏设置').first);
+    await tester.tap(
+      find.descendant(
+        of: find.byType(DesktopNavigation),
+        matching: find.text('游戏'),
+      ),
+    );
     await tester.pump();
 
     expect(reads, 2);
@@ -199,7 +229,12 @@ void main() {
       MaterialApp(home: Shell(manager, hagsStatusReader: () => status)),
     );
     await tester.pump();
-    await tester.tap(find.text('游戏设置').first);
+    await tester.tap(
+      find.descendant(
+        of: find.byType(DesktopNavigation),
+        matching: find.text('游戏'),
+      ),
+    );
     await tester.pump();
     expect(find.text('无法读取硬件加速 GPU 调度状态'), findsOneWidget);
 
@@ -232,7 +267,12 @@ void main() {
     await tester.pump();
 
     status = HardwareAcceleratedGpuSchedulingStatus.enabled;
-    await tester.tap(find.text('游戏设置').first);
+    await tester.tap(
+      find.descendant(
+        of: find.byType(DesktopNavigation),
+        matching: find.text('游戏'),
+      ),
+    );
     await tester.pump();
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pump();
@@ -276,7 +316,12 @@ void main() {
     final manager = _FakeManager(games: [game]);
     await tester.pumpWidget(MaterialApp(home: Shell(manager)));
     await tester.pump();
-    await tester.tap(find.text('游戏设置').first);
+    await tester.tap(
+      find.descendant(
+        of: find.byType(DesktopNavigation),
+        matching: find.text('游戏'),
+      ),
+    );
     await tester.pump();
 
     for (var attempt = 1; attempt <= 2; attempt++) {
@@ -298,11 +343,16 @@ void main() {
   testWidgets('驱动下载失败后再次点击仍显示提示', (tester) async {
     final manager = _FakeManager();
     await tester.pumpWidget(MaterialApp(home: Shell(manager)));
-    await tester.tap(find.text('驱动程序').first);
+    await tester.tap(
+      find.descendant(
+        of: find.byType(DesktopNavigation),
+        matching: find.text('驱动'),
+      ),
+    );
     await tester.pump();
 
     for (var attempt = 1; attempt <= 2; attempt++) {
-      await tester.tap(find.widgetWithText(FilledButton, '下载'));
+      await tester.tap(find.widgetWithText(DesktopButton, '下载'));
       await tester.pump();
       expect(manager.refreshCalls, attempt);
       expect(find.textContaining('下载失败'), findsOneWidget);

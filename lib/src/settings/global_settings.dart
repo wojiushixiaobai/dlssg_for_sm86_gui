@@ -54,11 +54,11 @@ class _GlobalSettingsState extends State<GlobalSettings> {
   @override
   Widget build(BuildContext c) => Card(
     child: ListView(
-      padding: const EdgeInsets.all(25),
+      padding: const EdgeInsets.all(20),
       children: [
         const Text(
           '全局配置',
-          style: TextStyle(fontSize: 23, fontWeight: _uiEmphasisWeight),
+          style: TextStyle(fontSize: 19, fontWeight: _uiEmphasisWeight),
         ),
         const SizedBox(height: 4),
         const Text(

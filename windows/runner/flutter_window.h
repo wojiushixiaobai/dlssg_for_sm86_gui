@@ -42,6 +42,8 @@ class FlutterWindow : public Win32Window {
       executable_icon_channel_;
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
       file_drop_channel_;
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      app_info_channel_;
   HWND flutter_view_window_ = nullptr;
 };
 

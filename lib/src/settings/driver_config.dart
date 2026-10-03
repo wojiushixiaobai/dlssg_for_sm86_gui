@@ -22,8 +22,8 @@ class _GameControlHeader extends StatelessWidget {
   Widget build(BuildContext c) => Container(
     padding: const EdgeInsets.all(18),
     decoration: BoxDecoration(
-      color: const Color(0xff202020),
-      borderRadius: BorderRadius.circular(8),
+      color: _appBackground,
+      borderRadius: BorderRadius.circular(12),
     ),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -39,7 +39,7 @@ class _GameControlHeader extends StatelessWidget {
                   Text(
                     game.name,
                     style: const TextStyle(
-                      fontSize: 23,
+                      fontSize: 19,
                       fontWeight: _uiEmphasisWeight,
                     ),
                   ),
@@ -53,11 +53,7 @@ class _GameControlHeader extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 12),
-            TextButton(
-              style: _inlineActionButtonStyle,
-              onPressed: onRun,
-              child: const Text('启动游戏'),
-            ),
+            DesktopButton(onPressed: onRun, label: '启动游戏'),
           ],
         ),
         const Divider(height: 27),
@@ -72,7 +68,7 @@ class _GameControlHeader extends StatelessWidget {
                   ? Icons.check_circle
                   : Icons.info_outline,
               color: status.kind == ModStateKind.applied
-                  ? const Color(0xff9dcc3a)
+                  ? _success
                   : Colors.white54,
             ),
             const SizedBox(width: 10),
@@ -116,7 +112,7 @@ class _DriverSettingsDisabled extends StatelessWidget {
     padding: const EdgeInsets.all(18),
     decoration: BoxDecoration(
       color: const Color(0xff28251c),
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(12),
     ),
     child: const Row(
       children: [
@@ -154,8 +150,8 @@ class _DirectDriverSettings extends StatelessWidget {
   Widget build(BuildContext c) {
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xff1d1d1d),
-        borderRadius: BorderRadius.circular(8),
+        color: _appBackground,
+        borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
         children: [
@@ -185,7 +181,7 @@ class _DriverSettingsTableHeader extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
     decoration: const BoxDecoration(
-      color: _nvidiaHeader,
+      color: _raisedSurface,
       borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
     ),
     child: const Row(
@@ -194,14 +190,14 @@ class _DriverSettingsTableHeader extends StatelessWidget {
           flex: 6,
           child: Text(
             'Key',
-            style: TextStyle(fontSize: 18, fontWeight: _uiEmphasisWeight),
+            style: TextStyle(fontSize: 13, fontWeight: _uiEmphasisWeight),
           ),
         ),
         Expanded(
           flex: 5,
           child: Text(
             'Value',
-            style: TextStyle(fontSize: 18, fontWeight: _uiEmphasisWeight),
+            style: TextStyle(fontSize: 13, fontWeight: _uiEmphasisWeight),
           ),
         ),
       ],
@@ -245,8 +241,8 @@ class _DriverSettingRowState extends State<_DriverSettingRow> {
           constraints: const BoxConstraints(minHeight: 61),
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
           decoration: BoxDecoration(
-            color: hovered ? _nvidiaHeader : Colors.transparent,
-            border: const Border(top: BorderSide(color: Color(0xff2b2b2b))),
+            color: hovered ? _raisedSurface : Colors.transparent,
+            border: const Border(top: BorderSide(color: _surfaceBorder)),
           ),
           child: Row(
             children: [
@@ -367,7 +363,7 @@ class _DriverSettingValue extends StatelessWidget {
                   child: Text(
                     setting.value.isEmpty ? '未设置' : setting.value,
                     style: TextStyle(
-                      color: enabled ? _nvidiaText : Colors.white38,
+                      color: enabled ? _primaryText : Colors.white38,
                     ),
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -407,14 +403,11 @@ class _IniSectionHeader extends StatelessWidget {
     width: double.infinity,
     padding: const EdgeInsets.fromLTRB(20, 16, 20, 5),
     decoration: const BoxDecoration(
-      border: Border(top: BorderSide(color: Color(0xff2b2b2b))),
+      border: Border(top: BorderSide(color: _surfaceBorder)),
     ),
     child: Text(
       '[$section]',
-      style: const TextStyle(
-        color: _nvidiaGreen,
-        fontWeight: _uiEmphasisWeight,
-      ),
+      style: const TextStyle(color: _secondaryText, fontWeight: _uiEmphasisWeight),
     ),
   );
 }

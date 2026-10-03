@@ -10,26 +10,25 @@ class SetRow extends StatelessWidget {
   final String label;
   final Widget value;
 
-  static const _labelWidth = 190.0;
-  static const _columnGap = 24.0;
-
   @override
   Widget build(BuildContext c) => Padding(
     padding: const EdgeInsets.symmetric(vertical: 9),
-    child: Row(
-      children: [
-        SizedBox(
-          width: _labelWidth,
-          child: Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: Colors.white60),
+    child: LayoutBuilder(
+      builder: (context, constraints) => Row(
+        children: [
+          SizedBox(
+            width: constraints.maxWidth < 450 ? 90 : 150,
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Colors.white60),
+            ),
           ),
-        ),
-        const SizedBox(width: _columnGap),
-        Expanded(child: value),
-      ],
+          const SizedBox(width: 16),
+          Expanded(child: value),
+        ],
+      ),
     ),
   );
 }

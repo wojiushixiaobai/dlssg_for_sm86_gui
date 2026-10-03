@@ -18,7 +18,8 @@ class Home extends StatelessWidget {
         .where((x) => x.game.source.kind == GameSourceKind.manual)
         .toList();
     return ListView(
-      padding: const EdgeInsets.fromLTRB(30, 30, 30, 30),
+      key: const PageStorageKey('home-scroll'),
+      padding: const EdgeInsets.fromLTRB(24, 24, 24, 30),
       children: [
         if (recent.isNotEmpty)
           Shelf('最近运行', recent.take(10).toList(), open, launch),
@@ -47,7 +48,7 @@ class Shelf extends StatelessWidget {
     children: [
       Text(
         title,
-        style: const TextStyle(fontSize: 20, fontWeight: _uiEmphasisWeight),
+        style: const TextStyle(fontSize: 16, fontWeight: _uiEmphasisWeight),
       ),
       const SizedBox(height: 11),
       CardRow(games, open, launch: launch),
@@ -178,8 +179,9 @@ class GameCard extends StatefulWidget {
 
 class _GameCardState extends State<GameCard> {
   bool localHovered = false;
+  bool focused = false;
 
-  bool get hovered => widget.selected ?? localHovered;
+  bool get hovered => (widget.selected ?? localHovered) || focused;
 
   void changeHover(bool value) {
     if (widget.selected == null && localHovered != value) {
@@ -195,38 +197,40 @@ class _GameCardState extends State<GameCard> {
     return SizedBox(
       width: 265,
       child: AnimatedScale(
-        duration: const Duration(milliseconds: 320),
+        duration: _motion(c),
         curve: Curves.easeOutCubic,
         alignment: Alignment.bottomCenter,
-        scale: hovered ? 1.06 : 1,
+        scale: hovered && !MediaQuery.disableAnimationsOf(c) ? 1.025 : 1,
         child: MouseRegion(
           cursor: SystemMouseCursors.click,
           onEnter: (_) => changeHover(true),
           onExit: (_) => changeHover(false),
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 320),
+            duration: _motion(c),
             curve: Curves.easeOutCubic,
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(4),
+              borderRadius: BorderRadius.circular(14),
               boxShadow: hovered
                   ? const [
                       BoxShadow(
-                        color: Color(0x66000000),
-                        blurRadius: 8,
-                        offset: Offset(0, 3),
+                        color: Color(0x44000000),
+                        blurRadius: 18,
+                        offset: Offset(0, 6),
                       ),
                     ]
                   : null,
             ),
             child: Card(
               margin: EdgeInsets.zero,
-              color: const Color(0xff272727),
+              color: _surface,
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(4),
+                borderRadius: BorderRadius.circular(14),
+                side: BorderSide(color: focused ? _accent : _surfaceBorder),
               ),
               clipBehavior: Clip.antiAlias,
               child: InkWell(
                 onTap: widget.tap,
+                onFocusChange: (value) => setState(() => focused = value),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -243,52 +247,39 @@ class _GameCardState extends State<GameCard> {
                                   fallback: const Cover(),
                                 )
                               : const Cover(),
-                          if (hovered)
-                            ColoredBox(
-                              color: const Color(0x88000000),
-                              child: Center(
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    SizedBox(
-                                      width: 106,
-                                      child: ElevatedButton(
-                                        onPressed: widget.tap,
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: _nvidiaGreen,
-                                          foregroundColor: Colors.black,
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(
-                                              4,
+                          IgnorePointer(
+                            ignoring: !hovered,
+                            child: AnimatedSwitcher(
+                              duration: _motion(c),
+                              child: !hovered
+                                  ? const SizedBox.expand()
+                                  : ColoredBox(
+                                      color: const Color(0xa61b1b1b),
+                                      child: Center(
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            SizedBox(
+                                              width: 106,
+                                              child: DesktopButton(
+                                                onPressed: widget.tap,
+                                                label: '设置',
+                                              ),
                                             ),
-                                          ),
-                                        ),
-                                        child: const Text('设置'),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 9),
-                                    SizedBox(
-                                      width: 106,
-                                      child: TextButton(
-                                        onPressed: widget.launch,
-                                        style: TextButton.styleFrom(
-                                          foregroundColor: Colors.white,
-                                          disabledForegroundColor: const Color(
-                                            0xff747474,
-                                          ),
-                                        ),
-                                        child: const Text(
-                                          '启动',
-                                          style: TextStyle(
-                                            fontWeight: _uiEmphasisWeight,
-                                          ),
+                                            const SizedBox(height: 8),
+                                            SizedBox(
+                                              width: 106,
+                                              child: DesktopButton(
+                                                onPressed: widget.launch,
+                                                label: '启动',
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                       ),
                                     ),
-                                  ],
-                                ),
-                              ),
                             ),
+                          ),
                         ],
                       ),
                     ),
@@ -321,10 +312,7 @@ class _GameCardState extends State<GameCard> {
                               style: const TextStyle(fontSize: 11),
                             ),
                             visualDensity: VisualDensity.compact,
-                            backgroundColor:
-                                game.mod.kind == ModStateKind.applied
-                                ? const Color(0xff274915)
-                                : null,
+                            backgroundColor: _raisedSurface,
                           ),
                         ],
                       ),
@@ -345,12 +333,21 @@ class Cover extends StatelessWidget {
   @override
   Widget build(BuildContext c) => const DecoratedBox(
     decoration: BoxDecoration(
-      gradient: LinearGradient(colors: [Color(0xff36561d), Color(0xff162019)]),
+      gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [Color(0xff353535), Color(0xff292929)],
+      ),
     ),
     child: Center(
       child: Text(
         'DLSSG',
-        style: TextStyle(fontSize: 30, fontWeight: _uiEmphasisWeight),
+        style: TextStyle(
+          fontSize: 25,
+          letterSpacing: 4,
+          color: _secondaryText,
+          fontWeight: _uiEmphasisWeight,
+        ),
       ),
     ),
   );
@@ -364,9 +361,25 @@ class Empty extends StatelessWidget {
     width: double.infinity,
     padding: const EdgeInsets.all(24),
     decoration: BoxDecoration(
-      color: const Color(0xff1b1f21),
-      borderRadius: BorderRadius.circular(9),
+      color: _surface,
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: _surfaceBorder),
     ),
-    child: Text(text, style: const TextStyle(color: Colors.white60)),
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Icon(
+          Icons.sports_esports_outlined,
+          size: 30,
+          color: _secondaryText,
+        ),
+        const SizedBox(height: 12),
+        Text(
+          text,
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: _secondaryText, height: 1.7),
+        ),
+      ],
+    ),
   );
 }

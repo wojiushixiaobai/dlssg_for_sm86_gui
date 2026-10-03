@@ -23,9 +23,23 @@ class GameList extends StatefulWidget {
 
 class _GameListState extends State<GameList> {
   GameSort sort = GameSort.name;
+  final search = TextEditingController();
+
+  @override
+  void dispose() {
+    search.dispose();
+    super.dispose();
+  }
 
   List<GameView> get ordered {
-    final entries = [...widget.games];
+    final query = search.text.trim().toLowerCase();
+    final entries = widget.games
+        .where(
+          (game) =>
+              game.game.name.toLowerCase().contains(query) ||
+              (game.game.source.appId?.toString().contains(query) ?? false),
+        )
+        .toList();
     entries.sort(
       (a, b) => switch (sort) {
         GameSort.name => a.game.name.toLowerCase().compareTo(
@@ -44,20 +58,23 @@ class _GameListState extends State<GameList> {
     final entries = ordered;
     return Card(
       margin: EdgeInsets.zero,
-      color: const Color(0xff1f1f1f),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+      color: _surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: const BorderSide(color: _surfaceBorder),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(15, 12, 10, 12),
+            padding: const EdgeInsets.fromLTRB(14, 8, 8, 4),
             child: Row(
               children: [
                 Expanded(
                   child: Text(
                     '程序  ${widget.games.length}',
                     style: const TextStyle(
-                      fontSize: 17,
+                      fontSize: 13,
                       fontWeight: _uiEmphasisWeight,
                     ),
                   ),
@@ -76,48 +93,86 @@ class _GameListState extends State<GameList> {
                     ),
                   ],
                 ),
-                TextButton.icon(
+                IconButton(
                   onPressed: widget.add,
                   icon: const Icon(Icons.add_circle_outline, size: 18),
-                  label: const Text('添加游戏'),
+                  tooltip: '添加游戏',
                 ),
               ],
             ),
           ),
-          const Divider(height: 1),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 2, 12, 10),
+            child: TextField(
+              controller: search,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                hintText: '搜索游戏',
+                prefixIcon: const Icon(Icons.search_rounded, size: 18),
+                suffixIcon: search.text.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: '清除搜索',
+                        icon: const Icon(Icons.close_rounded, size: 16),
+                        onPressed: () => setState(search.clear),
+                      ),
+              ),
+            ),
+          ),
           Expanded(
             child: entries.isEmpty
-                ? const Empty('使用“添加游戏”将其他游戏加入此列表。')
+                ? SingleChildScrollView(
+                    child: Empty(
+                      search.text.isEmpty
+                          ? '使用“添加游戏”将其他游戏加入此列表。'
+                          : '没有找到匹配的游戏。',
+                    ),
+                  )
                 : ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(6, 0, 6, 8),
                     itemCount: entries.length,
                     itemBuilder: (_, i) {
                       final x = entries[i];
-                      return ListTile(
-                        mouseCursor: SystemMouseCursors.click,
-                        selected: x.game.id == widget.selected,
-                        selectedTileColor: const Color(0xff2b3d1c),
-                        leading: GameIcon(x.game),
-                        title: Text(
-                          x.game.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: ListTile(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(9),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                          ),
+                          titleTextStyle: const TextStyle(
+                            fontFamily: _uiFontFamily,
+                            fontFamilyFallback: _uiFontFallback,
+                            fontSize: 13,
+                            color: _primaryText,
+                          ),
+                          subtitleTextStyle: const TextStyle(
+                            fontFamily: _uiFontFamily,
+                            fontFamilyFallback: _uiFontFallback,
+                            fontSize: 11,
+                            color: _secondaryText,
+                          ),
+                          mouseCursor: SystemMouseCursors.click,
+                          selected: x.game.id == widget.selected,
+                          selectedTileColor: _selectionBackground,
+                          selectedColor: _primaryText,
+                          horizontalTitleGap: 12,
+                          leading: _GameListIcon(x),
+                          title: Text(
+                            x.game.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Text(
+                            x.game.source.kind == GameSourceKind.steam
+                                ? 'Steam · ${x.game.source.appId}'
+                                : '手动添加',
+                          ),
+                          onTap: () => widget.change(x.game.id),
+                          onLongPress: () => widget.remove(x),
                         ),
-                        subtitle: Text(
-                          x.game.source.kind == GameSourceKind.steam
-                              ? 'Steam · ${x.game.source.appId}'
-                              : '手动添加',
-                        ),
-                        trailing: Icon(
-                          x.mod.kind == ModStateKind.applied
-                              ? Icons.check_circle
-                              : Icons.circle_outlined,
-                          color: x.mod.kind == ModStateKind.applied
-                              ? const Color(0xff9dcc3a)
-                              : Colors.white38,
-                          size: 18,
-                        ),
-                        onTap: () => widget.change(x.game.id),
-                        onLongPress: () => widget.remove(x),
                       );
                     },
                   ),
@@ -126,4 +181,41 @@ class _GameListState extends State<GameList> {
       ),
     );
   }
+}
+
+class _GameListIcon extends StatelessWidget {
+  const _GameListIcon(this.game);
+  final GameView game;
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    message: modLabel(game.mod),
+    child: Semantics(
+      label: modLabel(game.mod),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          GameIcon(game.game),
+          if (game.mod.kind == ModStateKind.applied)
+            Positioned(
+              top: -3,
+              right: -3,
+              child: Container(
+                width: 18,
+                height: 18,
+                decoration: const BoxDecoration(
+                  color: _surface,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.check_circle,
+                  color: _success,
+                  size: 14,
+                ),
+              ),
+            ),
+        ],
+      ),
+    ),
+  );
 }

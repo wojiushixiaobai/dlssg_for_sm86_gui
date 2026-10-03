@@ -24,10 +24,10 @@ namespace {
 
 constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
 
-// Keep these in sync with _nvidiaAppBackground and _nvidiaText in
+// Keep these in sync with _chromeSurface and _primaryText in
 // lib/src/shared/theme.dart.
-constexpr COLORREF kAppBackgroundColor = RGB(0x1b, 0x1b, 0x1b);
-constexpr COLORREF kAppTextColor = RGB(0xf2, 0xf2, 0xf2);
+constexpr COLORREF kAppBackgroundColor = RGB(0x28, 0x28, 0x28);
+constexpr COLORREF kAppTextColor = RGB(0xee, 0xee, 0xee);
 
 // The number of Win32Window objects that currently exist.
 static int g_active_window_count = 0;

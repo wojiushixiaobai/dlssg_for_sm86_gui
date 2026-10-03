@@ -115,7 +115,7 @@ class _GameSettingsState extends State<GameSettings> {
         _needsDriverUpdate(v.mod, widget.manager.info.installedVersion);
     return Card(
       child: ListView(
-        padding: const EdgeInsets.all(25),
+        padding: const EdgeInsets.all(20),
         children: [
           _GameControlHeader(
             game: g,
@@ -136,25 +136,24 @@ class _GameSettingsState extends State<GameSettings> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       if (canUpdate)
-                        TextButton(
-                          style: _inlineActionButtonStyle,
+                        DesktopButton(
                           onPressed: () => install(c, v),
-                          child: const Text('更新'),
+                          label: '更新',
                         ),
+                      if (canUpdate && v.mod.canUninstall)
+                        const SizedBox(width: 8),
                       if (v.mod.canUninstall)
-                        TextButton(
-                          style: _inlineActionButtonStyle,
+                        DesktopButton(
                           onPressed: widget.busy || proxy == null
                               ? null
                               : () => uninstall(c, v),
-                          child: const Text('卸载'),
+                          label: '卸载',
                         ),
                     ],
                   )
-                : TextButton(
-                    style: _inlineActionButtonStyle,
+                : DesktopButton(
                     onPressed: canInstall ? () => install(c, v) : null,
-                    child: Text(manageableConfig ? '安装代理' : '安装'),
+                    label: manageableConfig ? '安装代理' : '安装',
                   ),
           ),
           const SizedBox(height: 26),
@@ -166,15 +165,15 @@ class _GameSettingsState extends State<GameSettings> {
               color: Colors.transparent,
               child: InkWell(
                 onTap: widget.busy ? null : () => widget.choose(g),
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(12),
                 child: Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 18,
                     vertical: 10,
                   ),
                   decoration: BoxDecoration(
-                    color: const Color(0xff1d1d1d),
-                    borderRadius: BorderRadius.circular(8),
+                    color: _appBackground,
+                    borderRadius: BorderRadius.circular(12),
                   ),
                   child: SetRow(
                     'EXE 路径',

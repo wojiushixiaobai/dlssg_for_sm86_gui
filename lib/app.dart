@@ -39,14 +39,14 @@ class InitializationApp extends StatelessWidget {
   Widget build(BuildContext context) => MaterialApp(
     debugShowCheckedModeBanner: false,
     title: 'DLSSG for SM86 Manager',
-    theme: ThemeData.dark(),
+    theme: _desktopTheme(),
     home: Scaffold(
-      backgroundColor: _nvidiaAppBackground,
+      backgroundColor: _appBackground,
       body: const Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            CircularProgressIndicator(color: _nvidiaGreen),
+            CircularProgressIndicator(color: _accent),
             SizedBox(height: 20),
             Text('正在检查游戏状态…'),
           ],
@@ -66,50 +66,7 @@ class DlssgApp extends StatelessWidget {
   Widget build(BuildContext context) => MaterialApp(
     debugShowCheckedModeBanner: false,
     title: 'DLSSG for SM86 Manager',
-    theme: ThemeData(
-      useMaterial3: true,
-      brightness: Brightness.dark,
-      fontFamily: _uiFontFamily,
-      fontFamilyFallback: _uiFontFallback,
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: _nvidiaGreen,
-        brightness: Brightness.dark,
-        surface: _nvidiaAppBackground,
-      ),
-      scaffoldBackgroundColor: _nvidiaAppBackground,
-      dividerColor: const Color(0xff303030),
-      textTheme: const TextTheme(
-        bodyMedium: TextStyle(color: _nvidiaText),
-        titleMedium: TextStyle(color: _nvidiaText),
-      ),
-      textButtonTheme: TextButtonThemeData(
-        style: ButtonStyle(
-          mouseCursor: _buttonMouseCursor,
-          shape: const WidgetStatePropertyAll(_controlButtonShape),
-        ),
-      ),
-      outlinedButtonTheme: OutlinedButtonThemeData(
-        style: ButtonStyle(
-          mouseCursor: _buttonMouseCursor,
-          shape: const WidgetStatePropertyAll(_controlButtonShape),
-        ),
-      ),
-      filledButtonTheme: FilledButtonThemeData(
-        style: ButtonStyle(
-          mouseCursor: _buttonMouseCursor,
-          shape: const WidgetStatePropertyAll(_controlButtonShape),
-        ),
-      ),
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ButtonStyle(
-          mouseCursor: _buttonMouseCursor,
-          shape: const WidgetStatePropertyAll(_controlButtonShape),
-        ),
-      ),
-      iconButtonTheme: IconButtonThemeData(
-        style: ButtonStyle(mouseCursor: _buttonMouseCursor),
-      ),
-    ),
+    theme: _desktopTheme(),
     home: ArtworkCacheScope(
       cache: artworkCache,
       child: Shell(manager, initialGames: initialGames),

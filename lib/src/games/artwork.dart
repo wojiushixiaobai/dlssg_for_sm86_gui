@@ -99,8 +99,8 @@ class GameIcon extends StatelessWidget {
     final appId = game.source.appId;
     final fallback = appId == null
         ? const DecoratedBox(
-            decoration: BoxDecoration(color: Color(0xff283129)),
-            child: Icon(Icons.sports_esports, color: Color(0xff9dcc3a)),
+            decoration: BoxDecoration(color: _raisedSurface),
+            child: Icon(Icons.sports_esports_outlined, color: _secondaryText),
           )
         : SteamArtwork(
             appId: appId,
@@ -108,8 +108,8 @@ class GameIcon extends StatelessWidget {
             kind: SteamArtworkKind.icon,
             fit: BoxFit.cover,
             fallback: const DecoratedBox(
-              decoration: BoxDecoration(color: Color(0xff283129)),
-              child: Icon(Icons.sports_esports, color: Color(0xff9dcc3a)),
+              decoration: BoxDecoration(color: _raisedSurface),
+              child: Icon(Icons.sports_esports_outlined, color: _secondaryText),
             ),
           );
     return ClipRRect(

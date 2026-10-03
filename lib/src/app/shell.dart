@@ -272,9 +272,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
       0 =>
         gamesLoaded
             ? Home(games, openGame, launch: launchGame)
-            : const Center(
-                child: CircularProgressIndicator(color: _nvidiaGreen),
-              ),
+            : const Center(child: CircularProgressIndicator(color: _accent)),
       1 => Drivers(
         info,
         latestDriverVersion,
@@ -319,97 +317,110 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
       ),
     };
     return Scaffold(
-      body: Stack(
-        children: [
-          Row(
-            children: [
-              NvidiaNavigation(
-                selectedIndex: page,
-                onSelected: (index) => setState(() {
-                  page = index;
-                  if (index == 1) unawaited(_checkForUpdates());
-                  if (index == 2) _refreshHagsStatus();
-                }),
-              ),
-              Expanded(
-                child: Column(
-                  children: [
-                    Container(
-                      height: _navigationHighlightHeight,
-                      margin: const EdgeInsets.only(
-                        top:
-                            (_navigationItemHeight -
-                                _navigationHighlightHeight) /
-                            2,
-                      ),
-                      alignment: Alignment.centerLeft,
-                      padding: const EdgeInsets.symmetric(horizontal: 30),
-                      color: _nvidiaHeader,
-                      child: Text(
-                        ['主页', '驱动程序', '游戏设置'][page],
-                        style: const TextStyle(
-                          color: _nvidiaText,
-                          fontSize: 24,
-                          fontWeight: _uiEmphasisWeight,
-                        ),
-                      ),
-                    ),
-                    Expanded(child: content),
-                  ],
+      body: DecoratedBox(
+        decoration: const BoxDecoration(color: _appBackground),
+        child: Stack(
+          children: [
+            Row(
+              children: [
+                DesktopNavigation(
+                  selectedIndex: page,
+                  onSelected: (index) => setState(() {
+                    page = index;
+                    if (index == 1) unawaited(_checkForUpdates());
+                    if (index == 2) _refreshHagsStatus();
+                  }),
                 ),
-              ),
-            ],
-          ),
-          if (toast != null)
-            Positioned(
-              top: 80,
-              left: 138,
-              right: 30,
-              child: IgnorePointer(
-                child: Align(
-                  alignment: Alignment.topRight,
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 420),
-                    child: TweenAnimationBuilder<double>(
-                      key: ValueKey('toast-$_toastSerial'),
-                      tween: Tween(begin: 0, end: 1),
-                      duration: const Duration(milliseconds: 180),
-                      builder: (context, progress, child) => Opacity(
-                        opacity: progress,
-                        child: Transform.translate(
-                          offset: Offset(0, -8 * (1 - progress)),
-                          child: child,
-                        ),
-                      ),
-                      child: Material(
-                        color: const Color(0xff323232),
-                        elevation: 8,
-                        borderRadius: BorderRadius.circular(8),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 12,
+                Expanded(
+                  child: Column(
+                    children: [
+                      Container(
+                        height: 60,
+                        alignment: Alignment.centerLeft,
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        decoration: BoxDecoration(
+                          color: _chromeSurface,
+                          border: const Border(
+                            bottom: BorderSide(color: _surfaceBorder),
                           ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.error_outline,
-                                size: 20,
-                                color: Color(0xffffb17a),
-                              ),
-                              const SizedBox(width: 10),
-                              Flexible(
-                                child: Text(
-                                  toast!,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 14,
-                                    height: 1.4,
-                                  ),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                ['主页', '驱动程序', '游戏设置'][page],
+                                style: const TextStyle(
+                                  color: _primaryText,
+                                  fontSize: 18,
+                                  fontWeight: _uiEmphasisWeight,
                                 ),
                               ),
-                            ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: _PageEntrance(
+                          key: ValueKey(page),
+                          child: content,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            if (toast != null)
+              Positioned(
+                top: 70,
+                left: 100,
+                right: 30,
+                child: IgnorePointer(
+                  child: Align(
+                    alignment: Alignment.topRight,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 420),
+                      child: TweenAnimationBuilder<double>(
+                        key: ValueKey('toast-$_toastSerial'),
+                        tween: Tween(begin: 0, end: 1),
+                        duration: _motion(context),
+                        builder: (context, progress, child) => Opacity(
+                          opacity: progress,
+                          child: Transform.translate(
+                            offset: Offset(0, -8 * (1 - progress)),
+                            child: child,
+                          ),
+                        ),
+                        child: Material(
+                          color: _surface,
+                          elevation: 8,
+                          borderRadius: BorderRadius.circular(14),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.error_outline,
+                                  size: 20,
+                                  color: Color(0xffffb17a),
+                                ),
+                                const SizedBox(width: 10),
+                                Flexible(
+                                  child: Text(
+                                    toast!,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 14,
+                                      height: 1.4,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
@@ -417,8 +428,8 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
                   ),
                 ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }

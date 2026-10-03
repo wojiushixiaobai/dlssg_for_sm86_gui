@@ -28,7 +28,8 @@ try {
   if ($LASTEXITCODE -ne 0) { throw "flutter pub get 失败：$LASTEXITCODE" }
   flutter test
   if ($LASTEXITCODE -ne 0) { throw "flutter test 失败：$LASTEXITCODE" }
-  flutter build windows --release
+  # Ship the complete icon font; incremental builds can retain an older subset.
+  flutter build windows --release --no-tree-shake-icons
   if ($LASTEXITCODE -ne 0) { throw "flutter build windows 失败：$LASTEXITCODE" }
 } finally {
   Pop-Location
