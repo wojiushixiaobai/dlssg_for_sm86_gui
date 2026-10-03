@@ -358,7 +358,7 @@ void main() {
     await sourceFile.writeAsString(
       jsonEncode({'42': r'C:\missing\header.jpg'}),
     );
-    final cache = SteamArtworkCache(sourceFile, findLocalPaths: (_, _) => []);
+    final cache = SteamArtworkCache(sourceFile, findLocalPaths: (_) => []);
     final first = await cache.load(42);
     expect(first!.local, isFalse);
     expect(first.value, steamArtworkUrls(42).first);
@@ -366,17 +366,14 @@ void main() {
     final next = await cache.nextNetworkSource(42, first.value);
     expect(next!.value, steamArtworkUrls(42)[1]);
     expect((await cache.load(42))!.value, next.value);
-    final reopened = SteamArtworkCache(
-      sourceFile,
-      findLocalPaths: (_, _) => [],
-    );
+    final reopened = SteamArtworkCache(sourceFile, findLocalPaths: (_) => []);
     expect((await reopened.load(42))!.value, next.value);
   });
 
   test('所有封面源失败后可以重新加载', () async {
     final cache = SteamArtworkCache(
       File(p.join(root.path, 'artwork.json')),
-      findLocalPaths: (_, _) => [],
+      findLocalPaths: (_) => [],
     );
     var source = await cache.load(42);
     for (final url in steamArtworkUrls(42)) {

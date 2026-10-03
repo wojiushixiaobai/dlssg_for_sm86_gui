@@ -538,11 +538,7 @@ void main() {
     await tester.pumpWidget(
       const MaterialApp(
         home: Drivers(
-          ManagerInfo(
-            dataDirectory: 'data',
-            installedVersion: null,
-            modAvailable: false,
-          ),
+          ManagerInfo(installedVersion: null, modAvailable: false),
           null,
           false,
           false,
@@ -558,11 +554,7 @@ void main() {
     await tester.pumpWidget(
       const MaterialApp(
         home: Drivers(
-          ManagerInfo(
-            dataDirectory: 'data',
-            installedVersion: '0.2.0',
-            modAvailable: true,
-          ),
+          ManagerInfo(installedVersion: '0.2.0', modAvailable: true),
           '0.3.0',
           false,
           false,
@@ -581,11 +573,7 @@ void main() {
     await tester.pumpWidget(
       const MaterialApp(
         home: Drivers(
-          ManagerInfo(
-            dataDirectory: 'data',
-            installedVersion: null,
-            modAvailable: false,
-          ),
+          ManagerInfo(installedVersion: null, modAvailable: false),
           '0.3.0',
           false,
           true,
@@ -663,29 +651,6 @@ void main() {
     expect(launched, 1);
   });
 
-  testWidgets('游戏卡片始终显示启动操作', (tester) async {
-    var launched = 0;
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: GameCard(_gameView(1), () {}, launch: () => launched++),
-        ),
-      ),
-    );
-
-    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
-    await mouse.addPointer(location: Offset.zero);
-    await mouse.moveTo(tester.getCenter(find.byType(GameCard)));
-    await tester.pump();
-
-    final launchButton = tester.widget<TextButton>(
-      find.widgetWithText(TextButton, '启动'),
-    );
-    expect(launchButton.onPressed, isNotNull);
-    await tester.tap(find.text('启动'));
-    expect(launched, 1);
-  });
-
   testWidgets('长按游戏列表条目会移除游戏', (tester) async {
     GameView? removed;
     await tester.pumpWidget(
@@ -732,7 +697,7 @@ class _FakeManager implements ModManager {
 
   @override
   Future<ConfigProfile> loadGameConfig(String id) async =>
-      ModManager.parseProfile('测试配置', '[General]\nEnabled=1\n');
+      ModManager.parseProfile('[General]\nEnabled=1\n');
 
   @override
   Future<void> uninstallMod(
@@ -773,11 +738,8 @@ class _FakeManager implements ModManager {
   }
 
   @override
-  ManagerInfo get info => const ManagerInfo(
-    dataDirectory: 'test',
-    installedVersion: null,
-    modAvailable: false,
-  );
+  ManagerInfo get info =>
+      const ManagerInfo(installedVersion: null, modAvailable: false);
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);

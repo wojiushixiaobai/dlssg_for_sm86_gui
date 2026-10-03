@@ -10,8 +10,6 @@ import 'package:win32/win32.dart';
 import 'models.dart';
 import 'vdf.dart';
 
-enum SteamArtworkKind { card, icon }
-
 class SteamArtworkSource {
   const SteamArtworkSource.file(this.value) : local = true;
   const SteamArtworkSource.network(this.value) : local = false;
@@ -26,38 +24,28 @@ class SteamArtworkSource {
 class SteamArtworkCache {
   SteamArtworkCache(
     this.sourceFile, {
-    List<String> Function(int appId, SteamArtworkKind kind)? findLocalPaths,
+    List<String> Function(int appId)? findLocalPaths,
   }) : _findLocalPaths = findLocalPaths ?? findLocalArtworkPaths;
 
   final File sourceFile;
-  final List<String> Function(int appId, SteamArtworkKind kind) _findLocalPaths;
+  final List<String> Function(int appId) _findLocalPaths;
   final _requests = <String, Future<SteamArtworkSource?>>{};
   Map<String, String>? _sources;
   Future<Map<String, String>>? _sourcesLoading;
   Future<void> _writeTail = Future.value();
 
-  Future<SteamArtworkSource?> load(
-    int appId, {
-    SteamArtworkKind kind = SteamArtworkKind.card,
-  }) {
-    final key = _sourceKey(appId);
-    final existing = _requests[key];
-    if (existing != null) return existing;
-    final request = _load(appId, kind);
-    _requests[key] = request;
-    return request;
-  }
+  Future<SteamArtworkSource?> load(int appId) =>
+      _requests['$appId'] ??= _load(appId);
 
-  Future<SteamArtworkSource?> _load(int appId, SteamArtworkKind kind) async {
+  Future<SteamArtworkSource?> _load(int appId) async {
     try {
-      final saved = (await _readSources())[_sourceKey(appId)];
+      final saved = (await _readSources())['$appId'];
       if (saved != null) {
-        if (await File(saved).exists()) {
-          if (!_isUsableCachedArtwork(saved, kind)) {
-            await _remove(appId);
-          } else {
-            return SteamArtworkSource.file(saved);
-          }
+        if (await File(saved).exists() &&
+            !_lowResolutionSteamIconName.hasMatch(
+              p.basename(saved).toLowerCase(),
+            )) {
+          return SteamArtworkSource.file(saved);
         }
         final uri = Uri.tryParse(saved);
         if (uri != null &&
@@ -65,7 +53,7 @@ class SteamArtworkCache {
             uri.host.isNotEmpty) {
           // A previous fallback URL must not hide artwork that Steam has
           // subsequently populated in its local library cache.
-          final local = _firstLocalPath(appId, kind);
+          final local = _firstLocalPath(appId);
           if (local != null) {
             await _store(appId, local);
             return SteamArtworkSource.file(local);
@@ -74,12 +62,12 @@ class SteamArtworkCache {
         }
         await _remove(appId);
       }
-      final local = _firstLocalPath(appId, kind);
+      final local = _firstLocalPath(appId);
       if (local != null) {
         await _store(appId, local);
         return SteamArtworkSource.file(local);
       }
-      final source = steamArtworkUrls(appId, kind: kind).first;
+      final source = steamArtworkUrls(appId).first;
       await _store(appId, source);
       return SteamArtworkSource.network(source);
     } catch (_) {
@@ -88,8 +76,8 @@ class SteamArtworkCache {
     return null;
   }
 
-  String? _firstLocalPath(int appId, SteamArtworkKind kind) {
-    for (final path in _findLocalPaths(appId, kind)) {
+  String? _firstLocalPath(int appId) {
+    for (final path in _findLocalPaths(appId)) {
       if (File(path).existsSync()) return path;
     }
     return null;
@@ -97,21 +85,20 @@ class SteamArtworkCache {
 
   Future<SteamArtworkSource?> nextNetworkSource(
     int appId,
-    String failedUrl, {
-    SteamArtworkKind kind = SteamArtworkKind.card,
-  }) async {
-    final candidates = steamArtworkUrls(appId, kind: kind);
+    String failedUrl,
+  ) async {
+    final candidates = steamArtworkUrls(appId);
     final current = candidates.indexOf(failedUrl);
     final next = current < 0
         ? candidates.firstOrNull
         : candidates.elementAtOrNull(current + 1);
     if (next == null) {
-      _requests.remove(_sourceKey(appId));
+      _requests.remove('$appId');
       await _remove(appId);
       return null;
     }
     final source = SteamArtworkSource.network(next);
-    _requests[_sourceKey(appId)] = Future.value(source);
+    _requests['$appId'] = Future.value(source);
     await _store(appId, next);
     return source;
   }
@@ -140,17 +127,15 @@ class SteamArtworkCache {
     return _sources = {};
   }
 
-  String _sourceKey(int appId) => '$appId';
-
   Future<void> _store(int appId, String value) async {
     final sources = await _readSources();
-    sources[_sourceKey(appId)] = value;
+    sources['$appId'] = value;
     await _saveSources(sources);
   }
 
   Future<void> _remove(int appId) async {
     final sources = await _readSources();
-    if (sources.remove(_sourceKey(appId)) != null) {
+    if (sources.remove('$appId') != null) {
       await _saveSources(sources);
     }
   }
@@ -176,11 +161,7 @@ class SteamArtworkCache {
   }
 }
 
-List<String> findLocalArtworkPaths(
-  int appId,
-  SteamArtworkKind kind, {
-  List<String>? steamPaths,
-}) {
+List<String> findLocalArtworkPaths(int appId, {List<String>? steamPaths}) {
   final sources = <String>[];
   final seenLocalPaths = <String>{};
 
@@ -193,19 +174,23 @@ List<String> findLocalArtworkPaths(
   for (final steamPath in steamPaths ?? _artworkSteamPaths()) {
     final cachePath = p.join(steamPath, 'appcache', 'librarycache');
     final appCache = Directory(p.join(cachePath, '$appId'));
-    for (final name in _localArtworkNames(kind)) {
+    for (final name in _highResolutionArtworkNames) {
       addLocal(p.join(appCache.path, name));
     }
     if (appCache.existsSync()) {
       try {
         final nested = <String>[];
         for (final item in appCache.listSync(recursive: true)) {
-          if (item is! File || !_isKnownArtworkFile(item.path, kind)) continue;
+          if (item is! File ||
+              !_highResolutionArtworkNames.contains(
+                p.basename(item.path).toLowerCase(),
+              )) {
+            continue;
+          }
           nested.add(item.path);
         }
         nested.sort(
-          (a, b) =>
-              _artworkNameScore(a, kind).compareTo(_artworkNameScore(b, kind)),
+          (a, b) => _artworkNameScore(a).compareTo(_artworkNameScore(b)),
         );
         for (final path in nested) {
           addLocal(path);
@@ -214,7 +199,7 @@ List<String> findLocalArtworkPaths(
         // Steam may update this cache concurrently.
       }
     }
-    for (final name in _flatArtworkNames(appId, kind)) {
+    for (final name in _flatArtworkNames(appId)) {
       addLocal(p.join(cachePath, name));
     }
   }
@@ -262,32 +247,18 @@ final _highResolutionArtworkNames = [
   ..._namesWithExtensions(['header']),
 ];
 
-List<String> _localArtworkNames(SteamArtworkKind kind) => switch (kind) {
-  SteamArtworkKind.card || SteamArtworkKind.icon => _highResolutionArtworkNames,
-};
-
-List<String> _flatArtworkNames(int appId, SteamArtworkKind kind) => [
-  for (final name in _localArtworkNames(kind)) '${appId}_$name',
+List<String> _flatArtworkNames(int appId) => [
+  for (final name in _highResolutionArtworkNames) '${appId}_$name',
   for (final extension in _artworkExtensions) '$appId/header.$extension',
 ];
-
-bool _isKnownArtworkFile(String path, SteamArtworkKind kind) =>
-    _localArtworkNames(kind).contains(p.basename(path).toLowerCase());
 
 // Steam's hash-named app icons are 32×32 on this system. They were useful in
 // compact Steam lists but become visibly blurred at the size used by game
 // settings, so an old cached selection must never bring one back.
 final _lowResolutionSteamIconName = RegExp(r'^[0-9a-f]{40}\.(jpg|png)$');
 
-bool _isUsableCachedArtwork(String path, SteamArtworkKind kind) =>
-    kind != SteamArtworkKind.icon ||
-    !_lowResolutionSteamIconName.hasMatch(p.basename(path).toLowerCase());
-
-int _artworkNameScore(String path, SteamArtworkKind kind) {
-  final name = p.basename(path).toLowerCase();
-  final score = _localArtworkNames(kind).indexOf(name);
-  return score < 0 ? _localArtworkNames(kind).length : score;
-}
+int _artworkNameScore(String path) =>
+    _highResolutionArtworkNames.indexOf(p.basename(path).toLowerCase());
 
 List<String>? _artworkSteamPathsCache;
 
@@ -306,23 +277,12 @@ List<String> _artworkSteamPaths() {
   }();
 }
 
-List<String> steamArtworkUrls(
-  int appId, {
-  SteamArtworkKind kind = SteamArtworkKind.card,
-}) {
-  final names = switch (kind) {
-    SteamArtworkKind.card => ['header.jpg'],
-    SteamArtworkKind.icon => ['header.jpg'],
-  };
-  return [
-    for (final name in names) ...[
-      'https://cdn.cloudflare.steamstatic.com/steam/apps/$appId/$name',
-      'https://cdn.akamai.steamstatic.com/steam/apps/$appId/$name',
-      'https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/$appId/$name',
-      'https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/$appId/$name',
-    ],
-  ];
-}
+List<String> steamArtworkUrls(int appId) => [
+  'https://cdn.cloudflare.steamstatic.com/steam/apps/$appId/header.jpg',
+  'https://cdn.akamai.steamstatic.com/steam/apps/$appId/header.jpg',
+  'https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/$appId/header.jpg',
+  'https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/$appId/header.jpg',
+];
 
 class SteamScanner {
   SteamScanner({String? Function()? steamPath})
@@ -753,24 +713,6 @@ class SteamScanner {
     );
   }
 
-  /// Reads Steam's Windows launch entries from the binary appinfo cache.
-  ///
-  /// App manifests deliberately do not store an executable. Steam keeps the
-  /// authoritative launch configuration at `config/launch` in appinfo.vdf.
-  /// The returned entries are ordered with the Windows default first.
-  static List<String> parseAppInfoLaunchExecutables(
-    Uint8List bytes,
-    int appId,
-  ) {
-    try {
-      return _SteamAppInfoReader(bytes).windowsLaunchExecutables(appId);
-    } on FormatException {
-      // The Steam client can rewrite this cache while it is being read. The
-      // regular executable discovery remains a safe fallback in that case.
-      return const [];
-    }
-  }
-
   static Future<String?> _findGameExecutable(
     Directory gameFolder, {
     required String gameName,
@@ -931,10 +873,6 @@ class _SteamAppInfoReader {
   int _position = 0;
   List<String> _stringTable = const [];
   var _usesStringTable = false;
-
-  List<String> windowsLaunchExecutables(int targetAppId) {
-    return windowsLaunchExecutableMap({targetAppId})[targetAppId] ?? const [];
-  }
 
   Map<int, List<String>> windowsLaunchExecutableMap(Set<int> targetAppIds) {
     if (targetAppIds.isEmpty) return const {};

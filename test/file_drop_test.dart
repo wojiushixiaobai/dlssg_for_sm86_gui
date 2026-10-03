@@ -122,11 +122,8 @@ class _DropManager implements ModManager {
   Future<String> latestDriverVersion() async => '1.0';
 
   @override
-  ManagerInfo get info => const ManagerInfo(
-    dataDirectory: 'test',
-    installedVersion: null,
-    modAvailable: false,
-  );
+  ManagerInfo get info =>
+      const ManagerInfo(installedVersion: null, modAvailable: false);
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);

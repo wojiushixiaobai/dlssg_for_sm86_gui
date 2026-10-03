@@ -242,8 +242,6 @@ class _GameCardState extends State<GameCard> {
                               ? SteamArtwork(
                                   appId: game.game.source.appId!,
                                   cache: ArtworkCacheScope.of(context),
-                                  kind: SteamArtworkKind.card,
-                                  fit: BoxFit.cover,
                                   fallback: const Cover(),
                                 )
                               : const Cover(),

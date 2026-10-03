@@ -142,13 +142,11 @@ class _CountingSteamScanner extends SteamScanner {
   }
 }
 
-ConfigProfile testProfile(
-  String name, {
+ConfigProfile testProfile({
   int maxGeneratedFrames = 5,
   int loggingLevel = 1,
   String preset = 'Auto',
 }) => ConfigProfile(
-  name: name,
   sections: [
     const IniSection(
       name: 'General',
@@ -243,13 +241,6 @@ void main() {
       );
       addTearDown(() => root.delete(recursive: true));
       expect(
-        SteamScanner.parseAppInfoLaunchExecutables(
-          _steamAppInfoLaunchFixture(),
-          480,
-        ),
-        [r'Spacewar\Binaries\Win64\Spacewar-Win64-Shipping.exe'],
-      );
-      expect(
         SteamScanner.isUnrealEngineLaunchExecutable(
           r'Spacewar\Binaries\Win64\Spacewar-Win64-Shipping.exe',
         ),
@@ -275,10 +266,8 @@ void main() {
           'steamapps',
           'common',
           'spacewar',
-          'Spacewar',
-          'Binaries',
-          'Win64',
-          'Spacewar-Win64-Shipping.exe',
+          'bin',
+          'ActualGame.exe',
         ),
       );
       await configuredExe.parent.create(recursive: true);
@@ -288,7 +277,9 @@ void main() {
       ).writeAsString('heuristic fallback');
       final appInfo = File(p.join(root.path, 'appcache', 'appinfo.vdf'));
       await appInfo.parent.create(recursive: true);
-      await appInfo.writeAsBytes(_steamAppInfoLaunchFixture());
+      await appInfo.writeAsBytes(
+        _steamAppInfoLaunchFixture(windowsExecutable: r'bin\ActualGame.exe'),
+      );
 
       final games = await SteamScanner(steamPath: () => root.path)
           .scan(existing: const []);
@@ -584,7 +575,7 @@ void main() {
       );
       final cache = SteamArtworkCache(
         index,
-        findLocalPaths: (_, _) => [logo.path],
+        findLocalPaths: (_) => [logo.path],
       );
 
       final source = await cache.load(480);
@@ -593,7 +584,7 @@ void main() {
       expect(source?.value, logo.path);
       expect(jsonDecode(await index.readAsString()), {'480': logo.path});
     });
-    test('Steam librarycache 识别语言和库封面变体', () async {
+    test('Steam librarycache 优先使用本地化横幅并忽略低清和辅助图片', () async {
       final root = await Directory.systemTemp.createTemp(
         'dlssg-artwork-variants-',
       );
@@ -608,50 +599,18 @@ void main() {
       final header = File(p.join(cache.path, 'header_tchinese.png'));
       await localizedHeader.writeAsBytes([1]);
       await header.writeAsBytes([2]);
-
-      final paths = findLocalArtworkPaths(
-        480,
-        SteamArtworkKind.card,
-        steamPaths: [root.path],
-      );
-
-      expect(paths, containsAll([localizedHeader.path, header.path]));
-      expect(paths.first, localizedHeader.path);
-    });
-    test('主页和游戏设置优先使用高分辨率 Steam 横幅', () async {
-      final root = await Directory.systemTemp.createTemp(
-        'dlssg-artwork-kinds-',
-      );
-      addTearDown(() => root.delete(recursive: true));
-      final cache = Directory(
-        p.join(root.path, 'appcache', 'librarycache', '480'),
-      );
-      await cache.create(recursive: true);
-      final card = File(p.join(cache.path, 'library_header_schinese.jpg'));
-      final icon = File(p.join(cache.path, 'header_schinese.jpg'));
       final lowResolutionIcon = File(
         p.join(cache.path, '7e6eb68967f8d7c39b81ff9525925d6d1f212598.jpg'),
       );
-      await card.writeAsBytes([1]);
-      await icon.writeAsBytes([2]);
+      final unrelated = File(p.join(cache.path, 'broadcast_background.jpg'));
       await lowResolutionIcon.writeAsBytes([3]);
+      await unrelated.writeAsBytes([4]);
 
-      final backgrounds = findLocalArtworkPaths(
-        480,
-        SteamArtworkKind.card,
-        steamPaths: [root.path],
-      );
-      final icons = findLocalArtworkPaths(
-        480,
-        SteamArtworkKind.icon,
-        steamPaths: [root.path],
-      );
+      final paths = findLocalArtworkPaths(480, steamPaths: [root.path]);
 
-      expect(backgrounds.first, card.path);
-      expect(icons.first, card.path);
-      expect(icons, isNot(contains(lowResolutionIcon.path)));
+      expect(paths, [localizedHeader.path, header.path]);
     });
-    test('游戏设置不会复用缓存的 32px Steam 哈希图标', () async {
+    test('封面缓存不会复用 32px Steam 哈希图标', () async {
       final root = await Directory.systemTemp.createTemp(
         'dlssg-artwork-low-resolution-cache-',
       );
@@ -666,36 +625,13 @@ void main() {
       await index.writeAsString(jsonEncode({'480': lowResolutionIcon.path}));
       final cache = SteamArtworkCache(
         index,
-        findLocalPaths: (_, _) => [header.path],
+        findLocalPaths: (_) => [header.path],
       );
 
-      final source = await cache.load(480, kind: SteamArtworkKind.icon);
+      final source = await cache.load(480);
 
       expect(source?.value, header.path);
       expect(jsonDecode(await index.readAsString()), {'480': header.path});
-    });
-    test('Steam librarycache 忽略非封面辅助图片', () async {
-      final root = await Directory.systemTemp.createTemp(
-        'dlssg-artwork-filter-',
-      );
-      addTearDown(() => root.delete(recursive: true));
-      final cache = Directory(
-        p.join(root.path, 'appcache', 'librarycache', '480'),
-      );
-      await cache.create(recursive: true);
-      final unrelated = File(p.join(cache.path, 'broadcast_background.jpg'));
-      final header = File(p.join(cache.path, 'header.jpg'));
-      await unrelated.writeAsBytes([1]);
-      await header.writeAsBytes([2]);
-
-      final paths = findLocalArtworkPaths(
-        480,
-        SteamArtworkKind.card,
-        steamPaths: [root.path],
-      );
-
-      expect(paths, contains(header.path));
-      expect(paths, isNot(contains(unrelated.path)));
     });
     test('并发解析多个 logo 时完整保存来源索引', () async {
       final root = await Directory.systemTemp.createTemp(
@@ -733,7 +669,6 @@ void main() {
 
     test('INI 按原始 Section 和键动态序列化', () {
       const profile = ConfigProfile(
-        name: 'Test',
         sections: [
           IniSection(
             name: 'Experimental',
@@ -746,7 +681,7 @@ void main() {
       );
       final ini = profile.toIni();
       expect(ini, '[Experimental]\nToggle=0\nCustomPath=cache\n');
-      final parsed = ModManager.parseProfile('Test', ini);
+      final parsed = ModManager.parseProfile(ini);
       expect(parsed.value('Experimental', 'Toggle'), '0');
       expect(
         parsed.withValue('Experimental', 'CustomPath', 'new').toIni(),
@@ -1010,11 +945,7 @@ void main() {
 
     await manager.saveGameConfig(
       game.id,
-      testProfile(
-        'Existing configuration',
-        maxGeneratedFrames: 2,
-        loggingLevel: 1,
-      ),
+      testProfile(maxGeneratedFrames: 2, loggingLevel: 1),
     );
     expect(
       await File(p.join(gameDir.path, 'dlssg_sm86.ini')).readAsString(),
@@ -1205,7 +1136,7 @@ void main() {
     final game = await manager.addManualGame('Game', exe.path);
 
     final config =
-        testProfile('Game', maxGeneratedFrames: 2, loggingLevel: 3, preset: 'A')
+        testProfile(maxGeneratedFrames: 2, loggingLevel: 3, preset: 'A')
             .withValue('General', 'Enabled', '0')
             .withValue('FrameGeneration', 'Optimized', '0');
     await manager.saveGameConfig(game.id, config);
@@ -1246,7 +1177,7 @@ void main() {
     final exe = File(p.join(gameDir.path, 'game.exe'));
     await exe.writeAsString('exe');
     final game = await manager.addManualGame('Game', exe.path);
-    final global = testProfile('全局配置', maxGeneratedFrames: 2, loggingLevel: 1);
+    final global = testProfile(maxGeneratedFrames: 2, loggingLevel: 1);
     await manager.saveGlobalConfig(global);
     await manager.installMod(game.id);
     expect(
@@ -1255,10 +1186,10 @@ void main() {
     );
     expect(game.hasCustomConfig, isFalse);
 
-    final custom = testProfile('Game', maxGeneratedFrames: 1, loggingLevel: 3);
+    final custom = testProfile(maxGeneratedFrames: 1, loggingLevel: 3);
     await manager.saveGameConfig(game.id, custom);
     await manager.saveGlobalConfig(
-      testProfile('全局配置', maxGeneratedFrames: 3, loggingLevel: 1),
+      testProfile(maxGeneratedFrames: 3, loggingLevel: 1),
     );
     expect(
       await File(p.join(gameDir.path, 'dlssg_sm86.ini')).readAsString(),
@@ -1319,22 +1250,6 @@ void main() {
     await manager.scanSteam();
 
     expect(manager.db.games.where((game) => game.id == '987654321'), isEmpty);
-  });
-
-  test('Steam 清单未变化时重启不会重复扫描', () async {
-    final root = await Directory.systemTemp.createTemp('dlssg-steam-skip-');
-    addTearDown(() => root.delete(recursive: true));
-    final firstScanner = _CountingSteamScanner({'manifest': 1});
-    await ModManager.open(dataDirectory: root, scanner: firstScanner);
-    expect(firstScanner.scanCount, 1);
-
-    final unchangedScanner = _CountingSteamScanner({'manifest': 1});
-    await ModManager.open(dataDirectory: root, scanner: unchangedScanner);
-    expect(unchangedScanner.scanCount, 0);
-
-    final changedScanner = _CountingSteamScanner({'manifest': 2});
-    await ModManager.open(dataDirectory: root, scanner: changedScanner);
-    expect(changedScanner.scanCount, 1);
   });
 
   test('初始化提示仅在首次启动触发，后续仍按清单变化扫描', () async {

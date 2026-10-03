@@ -174,9 +174,8 @@ class IniSection {
 /// prescribe known sections or keys, so newer driver packages need no app
 /// update merely to expose their configuration.
 class ConfigProfile {
-  const ConfigProfile({required this.name, required this.sections});
+  const ConfigProfile({required this.sections});
 
-  final String name;
   final List<IniSection> sections;
 
   String? value(String section, String key) {
@@ -193,7 +192,6 @@ class ConfigProfile {
 
   ConfigProfile withValue(String section, String key, String value) =>
       ConfigProfile(
-        name: name,
         sections: [
           for (final item in sections)
             if (item.name.toLowerCase() == section.toLowerCase())

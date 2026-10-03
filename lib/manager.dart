@@ -31,11 +31,9 @@ const appStorageDirectoryName = 'dlssg_for_sm86_gui';
 
 class ManagerInfo {
   const ManagerInfo({
-    required this.dataDirectory,
     required this.installedVersion,
     required this.modAvailable,
   });
-  final String dataDirectory;
   final String? installedVersion;
   final bool modAvailable;
 }
@@ -191,7 +189,6 @@ class ModManager {
   }
 
   ManagerInfo get info => ManagerInfo(
-    dataDirectory: root.path,
     installedVersion: db.installedVersion,
     modAvailable: hasModPackage,
   );
@@ -371,7 +368,7 @@ class ModManager {
     );
   }
 
-  static ConfigProfile parseProfile(String name, String text) {
+  static ConfigProfile parseProfile(String text) {
     final sections = <IniSection>[];
     IniSection? section;
     for (final raw in text.split(RegExp(r'\r?\n'))) {
@@ -395,13 +392,13 @@ class ModManager {
         );
       }
     }
-    return ConfigProfile(name: name, sections: sections);
+    return ConfigProfile(sections: sections);
   }
 
   Future<ConfigProfile> loadGlobalConfig() async {
     _requireMod();
     await _ensureGlobalIniFromPackage();
-    return parseProfile('全局配置', await _globalIniFile.readAsString());
+    return parseProfile(await _globalIniFile.readAsString());
   }
 
   Future<void> saveGlobalConfig(ConfigProfile config) async {
@@ -646,11 +643,11 @@ class ModManager {
         ? null
         : File(p.join(File(game.exePath!).parent.path, 'dlssg_sm86.ini'));
     if (ini != null && await ini.exists()) {
-      return parseProfile(game.name, await ini.readAsString());
+      return parseProfile(await ini.readAsString());
     }
     _requireMod();
     await _ensureGlobalIniFromPackage();
-    return parseProfile(game.name, await _globalIniFile.readAsString());
+    return parseProfile(await _globalIniFile.readAsString());
   }
 
   /// Immediately persists a game's custom settings to its dlssg_sm86.ini.

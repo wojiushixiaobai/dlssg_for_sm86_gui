@@ -5,18 +5,12 @@ class SteamArtwork extends StatefulWidget {
     required this.appId,
     required this.cache,
     required this.fallback,
-    required this.kind,
-    this.fit = BoxFit.cover,
-    this.alignment = Alignment.center,
     super.key,
   });
 
   final int appId;
   final SteamArtworkCache cache;
-  final SteamArtworkKind kind;
   final Widget fallback;
-  final BoxFit fit;
-  final Alignment alignment;
 
   @override
   State<SteamArtwork> createState() => _SteamArtworkState();
@@ -29,16 +23,14 @@ class _SteamArtworkState extends State<SteamArtwork> {
   @override
   void initState() {
     super.initState();
-    _artwork = widget.cache.load(widget.appId, kind: widget.kind);
+    _artwork = widget.cache.load(widget.appId);
   }
 
   @override
   void didUpdateWidget(covariant SteamArtwork oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.appId != widget.appId ||
-        oldWidget.cache != widget.cache ||
-        oldWidget.kind != widget.kind) {
-      _artwork = widget.cache.load(widget.appId, kind: widget.kind);
+    if (oldWidget.appId != widget.appId || oldWidget.cache != widget.cache) {
+      _artwork = widget.cache.load(widget.appId);
       _retryingNetworkSource = false;
     }
   }
@@ -50,7 +42,6 @@ class _SteamArtworkState extends State<SteamArtwork> {
       final next = await widget.cache.nextNetworkSource(
         widget.appId,
         failedUrl,
-        kind: widget.kind,
       );
       if (mounted && next != null) {
         setState(() {
@@ -70,15 +61,13 @@ class _SteamArtworkState extends State<SteamArtwork> {
       return source.local
           ? Image.file(
               File(source.value),
-              fit: widget.fit,
-              alignment: widget.alignment,
+              fit: BoxFit.cover,
               gaplessPlayback: true,
               errorBuilder: (_, _, _) => widget.fallback,
             )
           : Image.network(
               source.value,
-              fit: widget.fit,
-              alignment: widget.alignment,
+              fit: BoxFit.cover,
               gaplessPlayback: true,
               errorBuilder: (_, _, _) {
                 _tryNextNetworkSource(source.value);
@@ -97,20 +86,16 @@ class GameIcon extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final appId = game.source.appId;
+    const placeholder = DecoratedBox(
+      decoration: BoxDecoration(color: _raisedSurface),
+      child: Icon(Icons.sports_esports_outlined, color: _secondaryText),
+    );
     final fallback = appId == null
-        ? const DecoratedBox(
-            decoration: BoxDecoration(color: _raisedSurface),
-            child: Icon(Icons.sports_esports_outlined, color: _secondaryText),
-          )
+        ? placeholder
         : SteamArtwork(
             appId: appId,
             cache: ArtworkCacheScope.of(c),
-            kind: SteamArtworkKind.icon,
-            fit: BoxFit.cover,
-            fallback: const DecoratedBox(
-              decoration: BoxDecoration(color: _raisedSurface),
-              child: Icon(Icons.sports_esports_outlined, color: _secondaryText),
-            ),
+            fallback: placeholder,
           );
     return ClipRRect(
       borderRadius: BorderRadius.circular(size * .22),
