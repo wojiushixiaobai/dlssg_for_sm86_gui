@@ -14,6 +14,8 @@ class DriverSettingDefinition {
   final List<String> choices;
 }
 
+// English descriptions from the upstream release configuration:
+// https://github.com/sdli1995/dlssg_for_sm86/blob/main/dlssg_sm86.ini
 const driverSettingDefinitions = <DriverSettingDefinition>[
   DriverSettingDefinition(
     section: 'General',
@@ -29,9 +31,13 @@ const driverSettingDefinitions = <DriverSettingDefinition>[
     key: 'Optimized',
     defaultValue: '1',
     description:
-        "1 = optimized kernels (recommended; the validated fastest set, output bit-identical to stock).\n"
-        "0 = stock kernels: the runtime's original numerics, no optimization. Both modes run on Ampere.",
-    choices: ['1', '0'],
+        'Consistency tier: how far the generated image may move from what the official NVIDIA runtime would produce.\n'
+        "0 = stock, the runtime's original numerics only\n"
+        '1 = every acceleration that keeps the output BIT-IDENTICAL to the official runtime (recommended, default)\n'
+        '2 = tier 1 plus the lossy image kernels that stay above ~50 dB PSNR against the official output, 310.9 build only\n'
+        '3 = everything lossy that is still faster\n'
+        'Tiers 2 and 3 are not bit-exact; a 310.1 build silently runs tier 2/3 as tier 1.',
+    choices: ['0', '1', '2', '3'],
   ),
   DriverSettingDefinition(
     section: 'FrameGeneration',
