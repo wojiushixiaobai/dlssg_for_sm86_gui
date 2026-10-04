@@ -187,6 +187,9 @@ final _games = [
 
 class _TestManager implements ModManager {
   @override
+  List<String> get availableProxies => proxies;
+
+  @override
   File get artworkSourcesFile =>
       File('${Directory.systemTemp.path}/dlssg-ui-test-artwork.json');
   @override

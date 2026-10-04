@@ -5,3 +5,4 @@ build/
 .flutter-plugins-dependencies
 data/
 release/
+drivers/

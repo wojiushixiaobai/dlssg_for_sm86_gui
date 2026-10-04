@@ -42,5 +42,9 @@ New-Item -ItemType Directory -Force -Path $releaseRoot | Out-Null
 if (Test-Path -LiteralPath $bundle) { Remove-Item -LiteralPath $bundle -Recurse -Force }
 Copy-Item -LiteralPath $buildOutput -Destination $bundle -Recurse -Force
 if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
+$drivers = Join-Path $projectRoot 'drivers'
+if (Test-Path -LiteralPath $drivers -PathType Container) {
+  Copy-Item -LiteralPath $drivers -Destination (Join-Path $bundle 'drivers') -Recurse -Force
+}
 Compress-Archive -LiteralPath $bundle -DestinationPath $zip -CompressionLevel Optimal
 Write-Host "已生成：$zip"

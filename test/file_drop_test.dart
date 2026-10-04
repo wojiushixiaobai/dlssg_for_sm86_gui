@@ -143,6 +143,9 @@ void _useDesktopSize(WidgetTester tester) {
 }
 
 class _DropManager implements ModManager {
+  @override
+  List<String> get availableProxies => proxies;
+
   final games = <GameView>[];
   final added = <({String name, String path})>[];
 

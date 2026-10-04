@@ -63,6 +63,43 @@ void main() {
     expect(find.widgetWithText(TextButton, '卸载'), findsNothing);
   });
 
+  testWidgets('旧设置中的已移除代理回退到默认选项', (tester) async {
+    for (final proxy in ['dxgi.dll', 'd3d12.dll']) {
+      final game = GameView(
+        GameEntry(
+          id: proxy,
+          name: '旧代理游戏',
+          source: const GameSource.manual(),
+          selectedProxy: proxy,
+        ),
+        TargetState.ready,
+        const ModStatus(ModStateKind.notApplied),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: GameSettings(
+              game,
+              true,
+              false,
+              ([GameEntry? game]) async {},
+              _FakeManager(games: [game]),
+              (action) => action(),
+              launch: (_) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      final dropdown = tester.widget<DropdownButton<String>>(
+        find.byType(DropdownButton<String>),
+      );
+      expect(dropdown.value, defaultProxy);
+      expect(dropdown.items!.map((item) => item.value), isNot(contains(proxy)));
+      expect(tester.takeException(), isNull);
+    }
+  });
+
   testWidgets('手动安装的未知版本 DLL 经确认后可卸载', (tester) async {
     tester.view.physicalSize = const Size(1280, 720);
     tester.view.devicePixelRatio = 1;
@@ -698,6 +735,9 @@ void main() {
 }
 
 class _FakeManager implements ModManager {
+  @override
+  List<String> get availableProxies => proxies;
+
   _FakeManager({
     this.games = const [],
     this.latestVersion,

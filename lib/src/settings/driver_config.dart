@@ -6,6 +6,7 @@ class _GameControlHeader extends StatelessWidget {
     required this.status,
     required this.onRun,
     required this.proxy,
+    required this.availableProxies,
     required this.onProxyChanged,
     required this.hagsStatus,
     required this.action,
@@ -14,6 +15,7 @@ class _GameControlHeader extends StatelessWidget {
   final ModStatus status;
   final VoidCallback? onRun;
   final String? proxy;
+  final List<String> availableProxies;
   final ValueChanged<String?>? onProxyChanged;
   final HardwareAcceleratedGpuSchedulingStatus hagsStatus;
   final Widget action;
@@ -90,7 +92,7 @@ class _GameControlHeader extends StatelessWidget {
               isExpanded: true,
               items:
                   (status.unrecognizedProxyHashes.isEmpty
-                          ? proxies
+                          ? {...availableProxies, ?proxy}
                           : status.unrecognizedProxyHashes.keys)
                       .map((x) => DropdownMenuItem(value: x, child: Text(x)))
                       .toList(),

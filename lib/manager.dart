@@ -15,15 +15,16 @@ import 'models.dart';
 import 'dll_signature.dart';
 import 'steam.dart';
 
-const proxies = [
+const proxies = ['version.dll', 'winmm.dll', 'dinput8.dll', 'dbghelp.dll'];
+const defaultProxy = 'version.dll';
+const bundledDriverFiles = [
   'version.dll',
   'winmm.dll',
-  'dinput8.dll',
-  'dxgi.dll',
-  'd3d12.dll',
   'dbghelp.dll',
+  'dinput8.dll',
+  'dlssg_sm86.ini',
+  'THIRD_PARTY_NOTICES.txt',
 ];
-const defaultProxy = 'version.dll';
 const latestReleaseUrl =
     'https://api.github.com/repos/sdli1995/dlssg_for_sm86/releases/latest';
 const modArchiveName = 'dlssg_for_sm86.tar.gz';
@@ -76,6 +77,7 @@ class ModManager {
   Database db;
   final SteamScanner scanner;
   final http.Client client;
+  _LocalDriver? _localDriver;
   final _uuid = const Uuid();
   final _fileHashCache = <String, _FileHashCacheEntry>{};
   final _signatureCache = <String, bool>{};
@@ -124,6 +126,7 @@ class ModManager {
 
   static Future<ModManager> open({
     Directory? dataDirectory,
+    Directory? driversDirectory,
     SteamScanner? scanner,
     http.Client? client,
     Future<void> Function()? onFirstLaunch,
@@ -152,6 +155,17 @@ class ModManager {
       client: client,
     );
     await manager._migrateLegacyGlobalProfile();
+    if (!manager.hasModPackage) {
+      manager._localDriver = await _LocalDriver.read(
+        driversDirectory ??
+            Directory(
+              p.join(File(Platform.resolvedExecutable).parent.path, 'drivers'),
+            ),
+      );
+      if (manager._localDriver != null) {
+        await manager._ensureGlobalIniFromPackage();
+      }
+    }
     final firstLaunch = !db.steamInitialScanCompleted;
     if (firstLaunch) await onFirstLaunch?.call();
     try {
@@ -172,15 +186,18 @@ class ModManager {
   }
 
   String? get _installedReleaseTag {
-    final tag = db.installedVersion;
+    final tag = _localDriver?.version ?? db.installedVersion;
     return tag != null && RegExp(r'^[0-9A-Za-z._-]+$').hasMatch(tag)
         ? tag
         : null;
   }
 
-  /// The active package always lives in one disposable directory.  The tag is
-  /// kept in state for display and update checks, not as a directory name.
-  Directory get _packageDirectory =>
+  /// Local drivers are read in place; downloads only replace the user cache.
+  Directory get _packageDirectory => _localDriver == null
+      ? _cachedPackageDirectory
+      : Directory(_localDriver!.path);
+
+  Directory get _cachedPackageDirectory =>
       Directory(p.join(releaseRoot.path, 'dlssg_for_sm86'));
 
   bool get hasModPackage {
@@ -188,8 +205,11 @@ class ModManager {
         File(p.join(_packageDirectory.path, 'dlssg_sm86.ini')).existsSync();
   }
 
+  List<String> get availableProxies =>
+      proxies.where((proxy) => _modDll(proxy).existsSync()).toList();
+
   ManagerInfo get info => ManagerInfo(
-    installedVersion: db.installedVersion,
+    installedVersion: _installedReleaseTag,
     modAvailable: hasModPackage,
   );
   File get artworkSourcesFile =>
@@ -217,7 +237,8 @@ class ModManager {
   File _modDll(String proxy) => _proxyDllIn(_packageDirectory, proxy);
 
   File _proxyDllIn(Directory package, String proxy) {
-    if (proxy == defaultProxy) return File(p.join(package.path, proxy));
+    final rootFile = File(p.join(package.path, proxy));
+    if (proxy == defaultProxy || rootFile.existsSync()) return rootFile;
     final preferred = File(p.join(package.path, 'alternatives', proxy));
     if (preferred.existsSync()) return preferred;
     // Compatibility with the misspelled directory used by older packages.
@@ -248,6 +269,7 @@ class ModManager {
     final dataPath = root.path;
     final releasePath = releaseRoot.path;
     final database = db;
+    final localDriver = _localDriver;
     final cachedHashes = Map<String, _FileHashCacheEntry>.of(_fileHashCache);
     final cachedSignatures = Map<String, bool>.of(_signatureCache);
     final result = await Isolate.run(
@@ -258,6 +280,7 @@ class ModManager {
         games,
         cachedHashes,
         cachedSignatures,
+        localDriver,
       ),
     );
     _fileHashCache.addAll(result.hashes);
@@ -324,7 +347,7 @@ class ModManager {
         proxy,
         recorded,
         _modDll(proxy),
-        db.installedVersion,
+        _installedReleaseTag,
         _cachedSha256,
         _signatureCache,
       );
@@ -361,7 +384,7 @@ class ModManager {
   ) {
     final targetPath = target.path;
     final packagePath = _modDll(proxy).path;
-    final installedVersion = db.installedVersion;
+    final installedVersion = _installedReleaseTag;
     final recorded = game.install;
     return Isolate.run(
       () => _identifyProxyDll(
@@ -551,7 +574,7 @@ class ModManager {
       game.install = ManagedInstall(
         proxy: desired,
         dllSha256: hash,
-        version: db.installedVersion ?? '未知版本',
+        version: _installedReleaseTag ?? '未知版本',
         installedAt: DateTime.now().toUtc(),
       );
       final ini = File(p.join(dir.path, 'dlssg_sm86.ini'));
@@ -829,8 +852,8 @@ class ModManager {
   }) async {
     final release = await _latestRelease();
     final version = release.version;
-    final previousVersion = _installedReleaseTag;
-    final releaseDirectory = _packageDirectory;
+    final previousVersion = db.installedVersion;
+    final releaseDirectory = _cachedPackageDirectory;
     final archiveDirectory = Directory(p.join(releaseRoot.path, version));
     final archiveFile = File(p.join(archiveDirectory.path, modArchiveName));
     final previousCacheArchive = File(p.join(releaseRoot.path, modArchiveName));
@@ -923,6 +946,7 @@ class ModManager {
     );
     await stage.create(recursive: true);
     final originalVersion = db.installedVersion;
+    final originalLocalDriver = _localDriver;
     var validated = false;
     var movedPrevious = false;
     var activated = false;
@@ -980,12 +1004,14 @@ class ModManager {
       }
       await stage.rename(releaseDirectory.path);
       activated = true;
+      _localDriver = null;
       await _ensureGlobalIniFromPackage();
       db.installedVersion = version;
       await _save();
       committed = true;
       return version;
     } catch (error) {
+      _localDriver = originalLocalDriver;
       db.installedVersion = originalVersion;
       if (activated) await releaseDirectory.delete(recursive: true);
       if (movedPrevious) await rollback.rename(releaseDirectory.path);
@@ -1098,12 +1124,13 @@ _GameViewsResult _listGamesInBackground(
   List<GameEntry> entries,
   Map<String, _FileHashCacheEntry> cachedHashes,
   Map<String, bool> cachedSignatures,
+  _LocalDriver? localDriver,
 ) {
   final manager = ModManager._(
     Directory(dataPath),
     Directory(releasePath),
     database,
-  );
+  ).._localDriver = localDriver;
   try {
     manager._fileHashCache.addAll(cachedHashes);
     manager._signatureCache.addAll(cachedSignatures);
@@ -1115,6 +1142,32 @@ _GameViewsResult _listGamesInBackground(
     );
   } finally {
     manager.client.close();
+  }
+}
+
+class _LocalDriver {
+  const _LocalDriver(this.path, this.version);
+  final String path;
+  final String version;
+
+  static Future<_LocalDriver?> read(Directory directory) async {
+    try {
+      for (final name in bundledDriverFiles) {
+        final file = File(p.join(directory.path, name));
+        if (!await file.exists() || await file.length() == 0) return null;
+      }
+      final metadata = jsonDecode(
+        await File(p.join(directory.path, 'release.json')).readAsString(),
+      );
+      if (metadata is! Map) return null;
+      return _LocalDriver(directory.path, _releaseTag(metadata['tag_name']));
+    } on FileSystemException {
+      return null;
+    } on FormatException {
+      return null;
+    } on StateError {
+      return null;
+    }
   }
 }
 

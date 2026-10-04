@@ -740,6 +740,200 @@ void main() {
     });
   });
 
+  group('内置离线驱动', () {
+    late Directory root;
+    late Directory bundled;
+    late Client offlineClient;
+
+    setUp(() async {
+      root = await Directory.systemTemp.createTemp('dlssg-bundled-');
+      bundled = await Directory(p.join(root.path, 'drivers')).create();
+      for (final name in bundledDriverFiles) {
+        await File(p.join(bundled.path, name)).writeAsString(
+          name == 'dlssg_sm86.ini' ? releaseIni : 'bundled-$name',
+        );
+      }
+      await File(p.join(bundled.path, 'release.json'))
+          .writeAsString(jsonEncode({'tag_name': '0.3.5'}));
+      offlineClient = MockClient((request) async {
+        fail('本地驱动不应请求网络：${request.url}');
+      });
+    });
+    tearDown(() async {
+      offlineClient.close();
+      await root.delete(recursive: true);
+    });
+
+    Future<ModManager> open({Client? client}) => ModManager.open(
+      dataDirectory: Directory(p.join(root.path, 'data')),
+      driversDirectory: bundled,
+      scanner: _CountingSteamScanner({}),
+      client: client ?? offlineClient,
+    );
+
+    test('直接使用 drivers 安装四个代理，重启正确识别版本且不复制到缓存', () async {
+      final manager = await open();
+      expect(manager.hasModPackage, isTrue);
+      expect(manager.info.installedVersion, '0.3.5');
+      expect(
+        manager.availableProxies,
+        unorderedEquals([
+          'version.dll',
+          'winmm.dll',
+          'dbghelp.dll',
+          'dinput8.dll',
+        ]),
+      );
+      expect(
+        await File(p.join(manager.root.path, 'global.ini')).readAsString(),
+        releaseIni,
+      );
+      final cached = Directory(
+        p.join(manager.releaseRoot.path, 'dlssg_for_sm86'),
+      );
+      expect(await cached.exists(), isFalse);
+      expect(manager.db.installedVersion, isNull);
+      for (final proxy in manager.availableProxies) {
+        final gameDir = await Directory(p.join(root.path, 'game-$proxy'))
+            .create();
+        final exe = await File(p.join(gameDir.path, 'game.exe'))
+            .writeAsString('exe');
+        final game = await manager.addManualGame(proxy, exe.path);
+        await manager.installMod(game.id, proxy: proxy);
+        expect(
+          await File(p.join(gameDir.path, proxy)).readAsString(),
+          'bundled-$proxy',
+        );
+        expect(
+          await File(p.join(gameDir.path, 'dlssg_sm86.ini')).readAsString(),
+          releaseIni,
+        );
+        // Background game detection must use the same local package/version.
+        game.install = null;
+        expect((await manager.view(game)).mod.version, '0.3.5');
+      }
+      await File(p.join(manager.root.path, 'global.ini'))
+          .writeAsString('user settings');
+      await File(p.join(bundled.path, 'release.json'))
+          .writeAsString(jsonEncode({'tag_name': '0.3.6'}));
+      await File(p.join(bundled.path, 'version.dll'))
+          .writeAsString('new local DLL');
+      final reopened = await open();
+      expect(reopened.info.installedVersion, '0.3.6');
+      expect(await cached.exists(), isFalse);
+      expect(
+        await File(p.join(reopened.root.path, 'global.ini')).readAsString(),
+        'user settings',
+      );
+      expect(reopened.db.games, hasLength(4));
+    });
+
+    test('直接使用 drivers 时保留已有全局配置', () async {
+      final data = await Directory(p.join(root.path, 'data')).create();
+      final ini = await File(p.join(data.path, 'global.ini'))
+          .writeAsString('custom config');
+      final manager = await open();
+      expect(manager.hasModPackage, isTrue);
+      expect(await ini.readAsString(), 'custom config');
+    });
+
+    for (final name in bundledDriverFiles) {
+      test('缺少 $name 时不启用残缺驱动', () async {
+        await File(p.join(bundled.path, name)).delete();
+        final manager = await open();
+        expect(manager.hasModPackage, isFalse);
+        expect(manager.info.installedVersion, isNull);
+        expect(
+          await Directory(
+            p.join(root.path, 'data', 'release', 'dlssg_for_sm86'),
+          ).exists(),
+          isFalse,
+        );
+      });
+    }
+
+    test('不存在 drivers 时使用原有流程', () async {
+      await bundled.delete(recursive: true);
+      final manager = await open();
+      expect(manager.hasModPackage, isFalse);
+      expect(manager.info.installedVersion, isNull);
+    });
+
+    for (final metadata in [
+      '{}',
+      '[]',
+      'invalid json',
+      '{"tag_name":"../bad"}',
+    ]) {
+      test('版本信息无效时回退：$metadata', () async {
+        await File(p.join(bundled.path, 'release.json'))
+            .writeAsString(metadata);
+        expect((await open()).hasModPackage, isFalse);
+      });
+    }
+
+    test('文件为空时回退', () async {
+      await File(p.join(bundled.path, 'version.dll')).writeAsString('');
+      expect((await open()).hasModPackage, isFalse);
+    });
+
+    test('更新失败保留本地驱动，更新成功和重启后优先使用缓存', () async {
+      final archive = Archive();
+      for (final name in [...proxies, 'dlssg_sm86.ini']) {
+        final content = utf8.encode(
+          name == 'dlssg_sm86.ini' ? releaseIni : 'updated-$name',
+        );
+        archive.addFile(ArchiveFile('upstream/$name', content.length, content));
+      }
+      final tarGz = GZipEncoder().encodeBytes(
+        TarEncoder().encodeBytes(archive),
+      );
+      var invalidArchive = true;
+      final client = MockClient((request) async {
+        if (request.url.toString() == latestReleaseUrl) {
+          return Response(
+            jsonEncode({
+              'tag_name': '0.4.0',
+              'tarball_url': 'https://example.com/update.tar.gz',
+            }),
+            200,
+          );
+        }
+        return Response.bytes(invalidArchive ? [1, 2, 3] : tarGz, 200);
+      });
+      addTearDown(client.close);
+      final manager = await open(client: client);
+      await expectLater(manager.refreshModFromGithub(), throwsA(anything));
+      expect(manager.info.installedVersion, '0.3.5');
+      expect(manager.hasModPackage, isTrue);
+      invalidArchive = false;
+      expect(await manager.refreshModFromGithub(), '0.4.0');
+      expect(manager.info.installedVersion, '0.4.0');
+      final reopened = await open();
+      expect(reopened.info.installedVersion, '0.4.0');
+      final gameDir = await Directory(p.join(root.path, 'updated-game'))
+          .create();
+      final exe = await File(p.join(gameDir.path, 'game.exe'))
+          .writeAsString('exe');
+      final game = await reopened.addManualGame('Updated game', exe.path);
+      await reopened.installMod(game.id, proxy: 'winmm.dll');
+      expect(
+        await File(p.join(gameDir.path, 'winmm.dll')).readAsString(),
+        'updated-winmm.dll',
+      );
+      expect(
+        await File(p.join(bundled.path, 'winmm.dll')).readAsString(),
+        'bundled-winmm.dll',
+      );
+      expect(
+        jsonDecode(
+          await File(p.join(bundled.path, 'release.json')).readAsString(),
+        )['tag_name'],
+        '0.3.5',
+      );
+    });
+  });
+
   test('通过上游 latest Release API 下载 tar.gz，并在本地复用缓存', () async {
     final root = await Directory.systemTemp.createTemp('dlssg-refresh-');
     addTearDown(() => root.delete(recursive: true));
@@ -747,9 +941,7 @@ void main() {
     final files = {
       'version.dll': 'mod-version.dll',
       'alternatives/dinput8.dll': 'mod-dinput8.dll',
-      'alternatives/dxgi.dll': 'mod-dxgi.dll',
       'alternatives/winmm.dll': 'mod-winmm.dll',
-      'alternatives/d3d12.dll': 'mod-d3d12.dll',
       'alternatives/dbghelp.dll': 'mod-dbghelp.dll',
       'alternatives/README.md': '# 备用代理 DLL',
       'archive/0.2.4/altnative/winmm.dll': 'old-winmm.dll',
@@ -953,6 +1145,54 @@ void main() {
       contains('MaxGeneratedFrames=2'),
     );
     expect(game.hasCustomConfig, isTrue);
+  });
+
+  test('已移除的代理不会出现在可用列表或被检测、安装、卸载', () async {
+    final root = await Directory.systemTemp.createTemp('dlssg-removed-proxy-');
+    addTearDown(() => root.delete(recursive: true));
+    final manager = await ModManager.open(
+      dataDirectory: root,
+      scanner: _CountingSteamScanner({}),
+    );
+    final cache = await Directory(
+      p.join(root.path, 'release', 'dlssg_for_sm86'),
+    ).create(recursive: true);
+    await File(p.join(cache.path, 'dlssg_sm86.ini')).writeAsString(releaseIni);
+    manager.db.installedVersion = 'test';
+    final gameDir = await Directory(p.join(root.path, 'game')).create();
+    final exe = await File(p.join(gameDir.path, 'game.exe'))
+        .writeAsString('exe');
+    final ini = await File(p.join(gameDir.path, 'dlssg_sm86.ini'))
+        .writeAsString(releaseIni);
+    final game = await manager.addManualGame('Removed proxies', exe.path);
+
+    for (final proxy in ['dxgi.dll', 'd3d12.dll']) {
+      await File(p.join(cache.path, proxy)).writeAsString('mod-$proxy');
+      final target = await File(p.join(gameDir.path, proxy))
+          .writeAsString('mod-$proxy');
+      expect(manager.availableProxies, isNot(contains(proxy)));
+      expect((await manager.view(game)).mod.kind, ModStateKind.notApplied);
+      await expectLater(
+        manager.installMod(game.id, proxy: proxy),
+        throwsArgumentError,
+      );
+      await expectLater(
+        manager.uninstallMod(game.id, proxy: proxy),
+        throwsArgumentError,
+      );
+      game.selectedProxy = proxy;
+      game.install = ManagedInstall(
+        proxy: proxy,
+        dllSha256: await sha256File(target),
+        version: 'test',
+      );
+      expect((await manager.view(game)).mod.kind, ModStateKind.notApplied);
+      await expectLater(manager.uninstallMod(game.id), throwsStateError);
+      expect(await target.readAsString(), 'mod-$proxy');
+      expect(await ini.readAsString(), releaseIni);
+      game.install = null;
+      game.selectedProxy = defaultProxy;
+    }
   });
 
   test('缺少 INI 的未识别代理显示为未安装', () async {

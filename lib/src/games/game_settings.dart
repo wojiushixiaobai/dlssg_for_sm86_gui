@@ -64,7 +64,9 @@ class _GameSettingsState extends State<GameSettings> {
 
   String? _initialProxy(GameView? view) {
     if ((view?.mod.unrecognizedProxyHashes.length ?? 0) > 1) return null;
-    return view?.mod.proxy ?? view?.game.selectedProxy ?? defaultProxy;
+    final selected =
+        view?.mod.proxy ?? view?.game.selectedProxy ?? defaultProxy;
+    return proxies.contains(selected) ? selected : defaultProxy;
   }
 
   Future<void> _loadConfig() async {
@@ -118,6 +120,7 @@ class _GameSettingsState extends State<GameSettings> {
         padding: const EdgeInsets.all(20),
         children: [
           _GameControlHeader(
+            availableProxies: widget.manager.availableProxies,
             game: g,
             status: v.mod,
             onRun: v.target == TargetState.ready && !widget.busy
