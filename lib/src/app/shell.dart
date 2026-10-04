@@ -43,6 +43,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
   DateTime? _lastUpdateCheck;
   List<GameView> games = [];
   bool gamesLoaded = false;
+  bool _loadingGames = false;
   ManagerInfo? info;
   var hagsStatus = HardwareAcceleratedGpuSchedulingStatus.unavailable;
   Timer? _toastTimer;
@@ -110,16 +111,24 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
   }
 
   Future<void> load() async {
-    final found = await widget.manager.listGames();
-    if (mounted) {
-      setState(() {
-        games = found;
-        gamesLoaded = true;
-        info = widget.manager.info;
-        selected = found.any((x) => x.game.id == selected)
-            ? selected
-            : (found.isEmpty ? null : found.first.game.id);
-      });
+    if (!mounted) return;
+    setState(() => _loadingGames = true);
+    try {
+      final found = await widget.manager.listGames();
+      if (mounted) {
+        setState(() {
+          games = found;
+          gamesLoaded = true;
+          info = widget.manager.info;
+          selected = found.any((x) => x.game.id == selected)
+              ? selected
+              : (found.isEmpty ? null : found.first.game.id);
+        });
+      }
+    } catch (error) {
+      _showToast('检测游戏状态失败：$error');
+    } finally {
+      if (mounted) setState(() => _loadingGames = false);
     }
   }
 
@@ -149,7 +158,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
   }
 
   Future<void> act(Future<void> Function() job) async {
-    if (busy) return;
+    if (busy || _loadingGames) return;
     setState(() {
       busy = true;
       _clearToast();
@@ -187,10 +196,18 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     if (f == null) return;
     await act(() async {
       if (game == null) {
-        await widget.manager.addManualGame(
+        final added = await widget.manager.addManualGame(
           f.name.replaceFirst(RegExp(r'\.exe$', caseSensitive: false), ''),
           f.path,
         );
+        if (mounted) {
+          setState(() {
+            selected = added.id;
+            page = 2;
+            gameTab = true;
+            _refreshHagsStatus();
+          });
+        }
       } else {
         await widget.manager.setGameExe(game.id, f.path);
       }
@@ -207,7 +224,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
 
   Future<void> _addDroppedGames(List<String> paths) async {
     if (paths.isEmpty) return;
-    if (busy) {
+    if (busy || _loadingGames) {
       _showToast('请等待当前操作完成后再拖放游戏。');
       return;
     }
@@ -299,7 +316,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
         selected: current,
         gameTab: gameTab,
         hasMod: info?.modAvailable == true,
-        busy: busy,
+        busy: busy || _loadingGames,
         onTab: (x) => setState(() {
           gameTab = x;
           if (x) _refreshHagsStatus();
@@ -356,6 +373,24 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
                                 ),
                               ),
                             ),
+                            if (_loadingGames) ...[
+                              const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: _accent,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              const Text(
+                                '正在检测游戏驱动…',
+                                style: TextStyle(
+                                  color: _secondaryText,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
                           ],
                         ),
                       ),

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -881,10 +882,10 @@ void main() {
       oldExe.path,
     );
     oldGame.selectedProxy = 'winmm.dll';
-    expect(manager.view(oldGame).mod.kind, ModStateKind.applied);
-    expect(manager.view(oldGame).mod.version, '未知版本');
+    expect((await manager.view(oldGame)).mod.kind, ModStateKind.applied);
+    expect((await manager.view(oldGame)).mod.version, '未知版本');
     await manager.installMod(oldGame.id, proxy: 'winmm.dll');
-    expect(manager.view(oldGame).mod.kind, ModStateKind.applied);
+    expect((await manager.view(oldGame)).mod.kind, ModStateKind.applied);
     expect(
       await File(p.join(oldGameDir.path, 'winmm.dll')).readAsString(),
       'mod-winmm.dll',
@@ -936,7 +937,7 @@ void main() {
       exe.path,
     );
 
-    expect(manager.view(game).mod.kind, ModStateKind.notApplied);
+    expect((await manager.view(game)).mod.kind, ModStateKind.notApplied);
     expect(
       (await manager.loadGameConfig(game.id))
           .value('FrameGeneration', 'MaxGeneratedFrames'),
@@ -968,7 +969,7 @@ void main() {
     await File(p.join(gameDir.path, defaultProxy)).writeAsString('driver');
     final game = await manager.addManualGame('Missing INI', exe.path);
 
-    expect(manager.view(game).mod.kind, ModStateKind.notApplied);
+    expect((await manager.view(game)).mod.kind, ModStateKind.notApplied);
   });
 
   test('现有 DLL 与旧记录不匹配时仍需备份', () async {
@@ -1033,7 +1034,7 @@ void main() {
         .writeAsString(releaseIni);
     final game = await manager.addManualGame('Existing driver', exe.path);
 
-    final status = manager.view(game).mod;
+    final status = (await manager.view(game)).mod;
     expect(status.kind, ModStateKind.applied);
     expect(status.version, 'test');
     expect(status.canUninstall, isTrue);
@@ -1069,8 +1070,8 @@ void main() {
         .writeAsString(releaseIni);
     final game = await manager.addManualGame('Unknown driver', exe.path);
 
-    expect(manager.view(game).mod.kind, ModStateKind.applied);
-    expect(manager.view(game).mod.version, '未知版本');
+    expect((await manager.view(game)).mod.kind, ModStateKind.applied);
+    expect((await manager.view(game)).mod.version, '未知版本');
     await manager.installMod(game.id);
     expect(await proxy.readAsString(), 'current-driver');
     expect(game.backups, isEmpty);
@@ -1378,6 +1379,59 @@ void main() {
     expect(
       (await manager.listGames()).first.game.id,
       manager.db.games.first.id,
+    );
+  });
+
+  test('下载驱动后冷缓存检测 300 个游戏及单个游戏不在调用线程读取文件', () async {
+    final root = await Directory.systemTemp.createTemp('dlssg-cold-scan-');
+    addTearDown(() => root.delete(recursive: true));
+    final manager = await ModManager.open(
+      dataDirectory: root,
+      scanner: _CountingSteamScanner({}),
+    );
+    addTearDown(manager.client.close);
+    final package = Directory(p.join(root.path, 'release', 'dlssg_for_sm86'));
+    await package.create(recursive: true);
+    await File(p.join(package.path, defaultProxy)).writeAsString('driver');
+    await File(p.join(package.path, 'dlssg_sm86.ini'))
+        .writeAsString(releaseIni);
+    manager.db.installedVersion = 'test';
+    final gameRoot = Directory(p.join(root.path, 'games'));
+    for (var index = 0; index < 300; index++) {
+      final exe = File(p.join(gameRoot.path, '$index', 'game.exe'));
+      await exe.parent.create(recursive: true);
+      await exe.writeAsString('exe');
+      await File(p.join(exe.parent.path, 'dlssg_sm86.ini'))
+          .writeAsString(releaseIni);
+      await File(p.join(exe.parent.path, defaultProxy)).writeAsString('driver');
+      manager.db.games.add(
+        GameEntry(
+          id: '$index',
+          name: 'Game $index',
+          source: const GameSource.manual(),
+          exePath: exe.path,
+        ),
+      );
+    }
+
+    final callerZone = Zone.current;
+    await IOOverrides.runZoned(
+      () async {
+        // Probe the cold single-game path first, then the full library. Any
+        // file inspection on this isolate fails, without timing assumptions.
+        final single = await manager.view(manager.db.games.first);
+        expect(single.mod.version, 'test');
+        final views = await manager.listGames();
+        expect(views, hasLength(300));
+        expect(views.every((view) => view.target == TargetState.ready), isTrue);
+        expect(views.every((view) => view.mod.version == 'test'), isTrue);
+      },
+      createFile: (path) {
+        if (p.isWithin(gameRoot.path, path) || p.isWithin(package.path, path)) {
+          throw StateError('调用线程不应读取游戏或驱动文件：$path');
+        }
+        return callerZone.run(() => File(path));
+      },
     );
   });
 

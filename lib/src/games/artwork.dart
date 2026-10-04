@@ -124,6 +124,9 @@ class ExecutableIcon extends StatefulWidget {
 
 class _ExecutableIconState extends State<ExecutableIcon> {
   static const _channel = MethodChannel('dlssg/executable-icon');
+  // Cache raw pixels, not ui.Image handles: each widget owns and disposes its
+  // decoded image. Futures also coalesce simultaneous requests for one EXE.
+  static final _pixels = <String, Future<Map<String, dynamic>?>>{};
   Future<ui.Image?>? _icon;
   ui.Image? _displayedImage;
   final _deferredDisposals = <ui.Image>[];
@@ -175,11 +178,22 @@ class _ExecutableIconState extends State<ExecutableIcon> {
 
   Future<ui.Image?> _load() async {
     final path = widget.executablePath;
-    if (path == null || !File(path).existsSync()) return null;
+    if (path == null) return null;
     try {
-      final icon = await _channel.invokeMapMethod<String, dynamic>('extract', {
-        'path': path,
-      });
+      final stat = await File(path).stat();
+      if (stat.type != FileSystemEntityType.file) return null;
+      final key =
+          '${p.normalize(path).toLowerCase()}:${stat.size}:'
+          '${stat.modified.microsecondsSinceEpoch}';
+      final request =
+          _pixels.remove(key) ??
+          _channel.invokeMapMethod<String, dynamic>('extract', {'path': path});
+      _pixels[key] = request;
+      // 256 icons at 128x128 BGRA use at most 16 MiB of cached pixel data.
+      while (_pixels.length > 256) {
+        _pixels.remove(_pixels.keys.first);
+      }
+      final icon = await request;
       final bytes = icon?['pixels'];
       final size = icon?['size'];
       if (bytes is! Uint8List ||
@@ -188,6 +202,8 @@ class _ExecutableIconState extends State<ExecutableIcon> {
         return null;
       }
       return await _decodeBgraIcon(bytes, size);
+    } on FileSystemException {
+      return null;
     } on PlatformException {
       return null;
     } on MissingPluginException {

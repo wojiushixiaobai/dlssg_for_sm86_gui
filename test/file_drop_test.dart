@@ -24,6 +24,59 @@ Future<void> _drop(WidgetTester tester, List<String> paths) async {
 }
 
 void main() {
+  testWidgets('文件选择添加游戏后打开新游戏设置，重复添加也选中已有游戏', (tester) async {
+    _useDesktopSize(tester);
+    final manager = _DropManager();
+    await manager.addManualGame('已有游戏', r'C:\games\old.exe');
+    const picked = r'C:\games\新游戏.exe';
+    const pickerChannel = MethodChannel('plugins.flutter.io/file_selector');
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      pickerChannel,
+      (call) async => [picked],
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        pickerChannel,
+        null,
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Shell(
+          manager,
+          initialGames: List.of(manager.games),
+          hagsStatusReader: () =>
+              HardwareAcceleratedGpuSchedulingStatus.unavailable,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(DesktopNavigation),
+        matching: find.text('游戏'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    for (var attempt = 0; attempt < 2; attempt++) {
+      await tester.tap(find.widgetWithText(ListTile, '已有游戏'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('添加游戏'));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<GameSettings>(find.byType(GameSettings))
+            .view
+            ?.game
+            .exePath,
+        picked,
+      );
+      expect(manager.games, hasLength(2));
+      expect(find.text('程序设置'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    }
+  });
+
   testWidgets('拖放 EXE 后自动添加并选中游戏', (tester) async {
     _useDesktopSize(tester);
     final directory = Directory.systemTemp.createTempSync('dlssg-drop-');

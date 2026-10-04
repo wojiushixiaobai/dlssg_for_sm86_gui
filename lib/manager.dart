@@ -237,7 +237,14 @@ class ModManager {
     await copyAtomic(source, _globalIniFile);
   }
 
-  Future<List<GameView>> listGames() async {
+  Future<List<GameView>> listGames() => _readGameViews(db.games);
+
+  /// DLL hashing and signature verification must never run on the UI isolate,
+  /// including the single-game check before installation.
+  Future<GameView> view(GameEntry game) async =>
+      (await _readGameViews([game])).single;
+
+  Future<List<GameView>> _readGameViews(List<GameEntry> games) async {
     final dataPath = root.path;
     final releasePath = releaseRoot.path;
     final database = db;
@@ -248,6 +255,7 @@ class ModManager {
         dataPath,
         releasePath,
         database,
+        games,
         cachedHashes,
         cachedSignatures,
       ),
@@ -290,7 +298,7 @@ class ModManager {
     return await directory.exists() ? directory.path : null;
   }
 
-  GameView view(GameEntry game) =>
+  GameView _viewSync(GameEntry game) =>
       GameView(game, _targetState(game), _modState(game));
   TargetState _targetState(GameEntry game) => game.exePath == null
       ? TargetState.awaitingExe
@@ -488,7 +496,7 @@ class ModManager {
   }) async {
     _requireMod();
     final game = _game(id);
-    final status = _modState(game);
+    final status = (await view(game)).mod;
     if (game.install == null &&
         status.unrecognizedProxyHashes.length > 1 &&
         proxy == null) {
@@ -1087,6 +1095,7 @@ _GameViewsResult _listGamesInBackground(
   String dataPath,
   String releasePath,
   Database database,
+  List<GameEntry> entries,
   Map<String, _FileHashCacheEntry> cachedHashes,
   Map<String, bool> cachedSignatures,
 ) {
@@ -1098,7 +1107,7 @@ _GameViewsResult _listGamesInBackground(
   try {
     manager._fileHashCache.addAll(cachedHashes);
     manager._signatureCache.addAll(cachedSignatures);
-    final games = database.games.map(manager.view).toList();
+    final games = entries.map(manager._viewSync).toList();
     return _GameViewsResult(
       games,
       manager._fileHashCache,

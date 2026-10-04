@@ -8,6 +8,8 @@
 #include <shellapi.h>
 
 #include <memory>
+#include <map>
+#include <cstdint>
 
 #include "win32_window.h"
 
@@ -30,6 +32,13 @@ class FlutterWindow : public Win32Window {
                                            WPARAM wparam, LPARAM lparam,
                                            UINT_PTR id, DWORD_PTR data);
   void HandleFileDrop(HDROP drop);
+  void CompleteIconRequests();
+  struct IconWorker;
+  std::shared_ptr<IconWorker> icon_worker_;
+  uint64_t next_icon_request_ = 0;
+  std::map<uint64_t,
+           std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>>
+      icon_results_;
 
   // The project to run.
   flutter::DartProject project_;

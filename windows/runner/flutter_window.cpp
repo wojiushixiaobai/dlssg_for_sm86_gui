@@ -5,9 +5,13 @@
 #include <shobjidl.h>
 
 #include <cstring>
+#include <condition_variable>
+#include <deque>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
+#include <thread>
 
 #include "flutter/generated_plugin_registrant.h"
 
@@ -17,6 +21,8 @@ FlutterWindow::FlutterWindow(const flutter::DartProject& project)
 FlutterWindow::~FlutterWindow() {}
 
 namespace {
+
+constexpr UINT kIconReady = WM_APP + 1;
 
 using PrivateExtractIcons = UINT(WINAPI *)(LPCWSTR, int, int, int, HICON *,
                                            UINT *, UINT, UINT);
@@ -122,6 +128,47 @@ std::vector<uint8_t> ExtractExecutableIcon(const std::wstring &path,
 
 }  // namespace
 
+// Only paths and pixel buffers cross the worker boundary. Flutter replies stay
+// on the platform thread, and a slow/unavailable drive cannot block its pump.
+struct FlutterWindow::IconWorker {
+  struct Request {
+    uint64_t id;
+    std::wstring path;
+  };
+  struct Completed {
+    uint64_t id;
+    std::vector<uint8_t> pixels;
+  };
+  std::mutex mutex;
+  std::condition_variable wake;
+  std::deque<Request> requests;
+  std::deque<Completed> completed;
+  bool stopping = false;
+};
+
+void FlutterWindow::CompleteIconRequests() {
+  if (!icon_worker_) return;
+  std::deque<IconWorker::Completed> completed;
+  {
+    std::lock_guard<std::mutex> lock(icon_worker_->mutex);
+    completed.swap(icon_worker_->completed);
+  }
+  for (auto& item : completed) {
+    const auto found = icon_results_.find(item.id);
+    if (found == icon_results_.end()) continue;
+    if (item.pixels.empty()) {
+      found->second->Success();
+    } else {
+      flutter::EncodableMap icon;
+      icon[flutter::EncodableValue("size")] = flutter::EncodableValue(128);
+      icon[flutter::EncodableValue("pixels")] =
+          flutter::EncodableValue(std::move(item.pixels));
+      found->second->Success(flutter::EncodableValue(icon));
+    }
+    icon_results_.erase(found);
+  }
+}
+
 bool FlutterWindow::OnCreate() {
   if (!Win32Window::OnCreate()) {
     return false;
@@ -138,6 +185,28 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+  icon_worker_ = std::make_shared<IconWorker>();
+  std::thread([worker = icon_worker_, window = GetHandle()] {
+    while (true) {
+      IconWorker::Request request;
+      {
+        std::unique_lock<std::mutex> lock(worker->mutex);
+        worker->wake.wait(lock, [&] {
+          return worker->stopping || !worker->requests.empty();
+        });
+        if (worker->stopping) return;
+        request = std::move(worker->requests.front());
+        worker->requests.pop_front();
+      }
+      auto pixels = ExtractExecutableIcon(request.path, 128);
+      {
+        std::lock_guard<std::mutex> lock(worker->mutex);
+        if (worker->stopping) return;
+        worker->completed.push_back({request.id, std::move(pixels)});
+        PostMessage(window, kIconReady, 0, 0);
+      }
+    }
+  }).detach();
   app_info_channel_ =
       std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
           flutter_controller_->engine()->messenger(), "dlssg/app-info",
@@ -155,7 +224,7 @@ bool FlutterWindow::OnCreate() {
           flutter_controller_->engine()->messenger(), "dlssg/executable-icon",
           &flutter::StandardMethodCodec::GetInstance());
   executable_icon_channel_->SetMethodCallHandler(
-      [](const auto &call, auto result) {
+      [this](const auto &call, auto result) {
         if (call.method_name() != "extract") {
           result->NotImplemented();
           return;
@@ -171,15 +240,13 @@ bool FlutterWindow::OnCreate() {
           return;
         }
         const auto wide_path = Utf8ToWide(std::get<std::string>(path->second));
-        const auto pixels = ExtractExecutableIcon(wide_path, 128);
-        if (pixels.empty()) {
-          result->Success();
-          return;
+        const auto id = next_icon_request_++;
+        icon_results_.emplace(id, std::move(result));
+        {
+          std::lock_guard<std::mutex> lock(icon_worker_->mutex);
+          icon_worker_->requests.push_back({id, wide_path});
         }
-        flutter::EncodableMap icon;
-        icon[flutter::EncodableValue("size")] = flutter::EncodableValue(128);
-        icon[flutter::EncodableValue("pixels")] = flutter::EncodableValue(pixels);
-        result->Success(flutter::EncodableValue(icon));
+        icon_worker_->wake.notify_one();
       });
   file_drop_channel_ =
       std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
@@ -224,6 +291,19 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  if (icon_worker_) {
+    {
+      std::lock_guard<std::mutex> lock(icon_worker_->mutex);
+      icon_worker_->stopping = true;
+      icon_worker_->requests.clear();
+      icon_worker_->completed.clear();
+    }
+    icon_worker_->wake.notify_one();
+    // The worker owns its state until any in-flight extraction returns. Never
+    // wait for disk I/O here or let it access the destroyed window/controller.
+    icon_worker_.reset();
+  }
+  icon_results_.clear();
   if (flutter_view_window_ != nullptr && IsWindow(flutter_view_window_)) {
     DragAcceptFiles(flutter_view_window_, FALSE);
     RemoveWindowSubclass(flutter_view_window_, DropSubclassProc, 1);
@@ -272,6 +352,10 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
+  if (message == kIconReady) {
+    CompleteIconRequests();
+    return 0;
+  }
   // Give Flutter, including plugins, an opportunity to handle window messages.
   if (flutter_controller_) {
     std::optional<LRESULT> result =

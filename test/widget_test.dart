@@ -10,6 +10,31 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('游戏驱动检测期间显示提示并允许切换页面', (tester) async {
+    tester.view.physicalSize = const Size(1280, 720);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final pending = Completer<List<GameView>>();
+    final manager = _FakeManager(pendingGames: pending.future);
+    await tester.pumpWidget(MaterialApp(home: Shell(manager)));
+    await tester.pump();
+    expect(find.text('正在检测游戏驱动…'), findsOneWidget);
+    await tester.tap(
+      find.descendant(
+        of: find.byType(DesktopNavigation),
+        matching: find.text('游戏'),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('程序设置'), findsOneWidget);
+    expect(find.text('正在检测游戏驱动…'), findsOneWidget);
+    pending.complete([]);
+    await tester.pumpAndSettle();
+    expect(find.text('正在检测游戏驱动…'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('未识别 DLL 且无 INI 时显示未安装', (tester) async {
     tester.view.physicalSize = const Size(1280, 720);
     tester.view.devicePixelRatio = 1;
@@ -677,11 +702,13 @@ class _FakeManager implements ModManager {
     this.games = const [],
     this.latestVersion,
     this.failLaunch = true,
+    this.pendingGames,
   });
 
   final List<GameView> games;
   final Future<String>? latestVersion;
   final bool failLaunch;
+  final Future<List<GameView>>? pendingGames;
   int latestCalls = 0;
   int listCalls = 0;
   int refreshCalls = 0;
@@ -692,7 +719,7 @@ class _FakeManager implements ModManager {
   @override
   Future<List<GameView>> listGames() async {
     listCalls++;
-    return games;
+    return pendingGames ?? games;
   }
 
   @override

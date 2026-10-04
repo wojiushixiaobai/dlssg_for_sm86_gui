@@ -129,11 +129,15 @@ class _GameListState extends State<GameList> {
                     ),
                   )
                 : ListView.builder(
+                    // A scrollbar jump must not lay out every preceding game
+                    // (and start loading each one's executable icon).
+                    itemExtent: 76 * MediaQuery.textScalerOf(c).scale(13) / 13,
                     padding: const EdgeInsets.fromLTRB(6, 0, 6, 8),
                     itemCount: entries.length,
                     itemBuilder: (_, i) {
                       final x = entries[i];
                       return Padding(
+                        key: ValueKey(x.game.id),
                         padding: const EdgeInsets.symmetric(vertical: 2),
                         child: ListTile(
                           shape: RoundedRectangleBorder(
@@ -169,6 +173,8 @@ class _GameListState extends State<GameList> {
                             x.game.source.kind == GameSourceKind.steam
                                 ? 'Steam · ${x.game.source.appId}'
                                 : '手动添加',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                           onTap: () => widget.change(x.game.id),
                           onLongPress: () => widget.remove(x),

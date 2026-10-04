@@ -227,7 +227,7 @@ void main() {
     final ini = File(p.join(exe.parent.path, 'dlssg_sm86.ini'));
     await ini.writeAsString('[General]\nEnabled=1\n');
     final game = await manager.addManualGame('Game', exe.path);
-    final status = manager.view(game).mod;
+    final status = (await manager.view(game)).mod;
     expect(
       status.unrecognizedProxyHashes.keys,
       containsAll([defaultProxy, 'winmm.dll']),
@@ -268,7 +268,7 @@ void main() {
     await File(p.join(exe.parent.path, 'dlssg_sm86.ini'))
         .writeAsString('[General]\nEnabled=1\n');
     final game = await manager.addManualGame('Game', exe.path);
-    expect(manager.view(game).mod.proxy, 'winmm.dll');
+    expect((await manager.view(game)).mod.proxy, 'winmm.dll');
 
     await manager.installMod(game.id);
     expect(await manualDll.readAsString(), 'new-winmm.dll');
@@ -288,8 +288,7 @@ void main() {
     final ini = File(p.join(exe.parent.path, 'dlssg_sm86.ini'));
     await ini.writeAsString('[General]\nEnabled=1\n');
     final game = await manager.addManualGame('Game', exe.path);
-    final oldHash = manager
-        .view(game)
+    final oldHash = (await manager.view(game))
         .mod
         .unrecognizedProxyHashes[defaultProxy];
     await target.writeAsString('changed-driver');
