@@ -144,6 +144,9 @@ void main() {
   });
 
   testWidgets('多个未知代理须先选择目标才能卸载', (tester) async {
+    final wasFatal = WidgetController.hitTestWarningShouldBeFatal;
+    WidgetController.hitTestWarningShouldBeFatal = true;
+    addTearDown(() => WidgetController.hitTestWarningShouldBeFatal = wasFatal);
     tester.view.physicalSize = const Size(1280, 720);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -184,7 +187,7 @@ void main() {
           .onPressed,
       isNull,
     );
-    await tester.tap(find.text('请选择代理 DLL'));
+    await tester.tap(find.byType(DropdownButton<String>));
     await tester.pump();
     await tester.tap(find.text('winmm.dll').last);
     await tester.pump();
