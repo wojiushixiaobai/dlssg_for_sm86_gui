@@ -62,7 +62,7 @@ class _GlobalSettingsState extends State<GlobalSettings> {
         ),
         const SizedBox(height: 4),
         const Text(
-          '安装游戏时默认使用此配置。修改会同步到仍使用全局配置的已安装游戏。',
+          '此配置仅作为新安装游戏的默认配置。修改不会影响已安装游戏；请在游戏设置中单独调整其配置。',
           style: TextStyle(color: Colors.white60),
         ),
         const SizedBox(height: 22),

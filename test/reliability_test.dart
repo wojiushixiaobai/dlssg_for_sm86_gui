@@ -35,6 +35,7 @@ List<int> _archive({String? omit}) {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   late Directory root;
   final clients = <Client>[];
 

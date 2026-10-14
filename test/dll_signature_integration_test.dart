@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:dlssg_for_sm86_manager/dll_signature.dart';
+import 'package:dlssg_for_sm86_manager/driver_fingerprints.dart';
 import 'package:dlssg_for_sm86_manager/manager.dart';
 import 'package:dlssg_for_sm86_manager/models.dart';
 import 'package:dlssg_for_sm86_manager/steam.dart';
@@ -26,6 +27,11 @@ int _securityDirectory(Uint8List bytes) {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  late DriverFingerprintCatalog catalog;
+  setUpAll(() async {
+    catalog = await DriverFingerprintCatalog.load();
+  });
   final fixtureRoot = Platform.environment['DLSSG_SIGNATURE_FIXTURE_ROOT'];
   group(
     '实际上游 DLL 签名',
@@ -157,7 +163,10 @@ void main() {
           final status = (await manager.listGames()).single.mod;
           expect(status.kind, ModStateKind.applied);
           expect(status.proxy, proxy);
-          expect(status.version, relative.contains('0.1.0') ? '0.1.0' : '未知版本');
+          expect(
+            status.version,
+            catalog.proxyVersions[await sha256File(target)] ?? '未知版本',
+          );
           await manager.uninstallMod(game.id);
           expect(await target.exists(), isFalse);
           expect(await ini.exists(), isFalse);

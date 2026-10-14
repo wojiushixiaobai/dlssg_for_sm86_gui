@@ -182,6 +182,7 @@ ConfigProfile testProfile({
 );
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   group('Valve 格式', () {
     test('解析 libraryfolders 和 ACF', () {
       const libraries =
@@ -879,22 +880,31 @@ void main() {
 
     test('更新失败保留本地驱动，更新成功和重启后优先使用缓存', () async {
       final archive = Archive();
-      for (final name in [...proxies, 'dlssg_sm86.ini']) {
+      for (final name in [
+        ...proxies,
+        ...runtimeDriverFiles,
+        'dlssg_sm86.ini',
+      ]) {
         final content = utf8.encode(
-          name == 'dlssg_sm86.ini' ? releaseIni : 'updated-$name',
+          name == 'dlssg_sm86.ini'
+              ? '[DLSSG]\nOptimized=2\nPreset=Auto\n'
+              : 'updated-$name',
         );
-        archive.addFile(ArchiveFile('upstream/$name', content.length, content));
+        archive.addFile(ArchiveFile(name, content.length, content));
       }
-      final tarGz = GZipEncoder().encodeBytes(
-        TarEncoder().encodeBytes(archive),
-      );
+      final tarGz = ZipEncoder().encodeBytes(archive);
       var invalidArchive = true;
       final client = MockClient((request) async {
         if (request.url.toString() == latestReleaseUrl) {
           return Response(
             jsonEncode({
               'tag_name': '0.4.0',
-              'tarball_url': 'https://example.com/update.tar.gz',
+              'assets': [
+                {
+                  'name': 'dlssg-release-0.4.0-x64.zip',
+                  'browser_download_url': 'https://example.com/update.zip',
+                },
+              ],
             }),
             200,
           );
@@ -960,6 +970,15 @@ void main() {
       );
     }
     final tarGz = GZipEncoder().encodeBytes(TarEncoder().encodeBytes(archive));
+    final modernArchive = Archive();
+    for (final entry in {
+      ...files,
+      for (final name in runtimeDriverFiles) name: 'runtime-$name',
+    }.entries) {
+      final content = utf8.encode(entry.value);
+      modernArchive.addFile(ArchiveFile(entry.key, content.length, content));
+    }
+    final modernZip = ZipEncoder().encodeBytes(modernArchive);
     var archiveRequests = 0;
     final manager = await ModManager.open(
       dataDirectory: root,
@@ -969,13 +988,22 @@ void main() {
             jsonEncode({
               'tag_name': version,
               'tarball_url': 'https://upstream.example/$version.tar.gz',
+              if (version == '0.4.0')
+                'assets': [
+                  {
+                    'name': 'dlssg-release-$version-x64.zip',
+                    'browser_download_url':
+                        'https://upstream.example/$version.zip',
+                  },
+                ],
             }),
             200,
           );
         }
-        if (request.url.path.endsWith('/$version.tar.gz')) {
+        if (request.url.path.endsWith('/$version.tar.gz') ||
+            request.url.path.endsWith('/$version.zip')) {
           archiveRequests++;
-          return Response.bytes(tarGz, 200);
+          return Response.bytes(version == '0.4.0' ? modernZip : tarGz, 200);
         }
         return Response('not found', 404);
       }),
@@ -1399,7 +1427,7 @@ void main() {
     );
   });
 
-  test('安装继承全局配置，游戏自定义配置不受全局更新影响', () async {
+  test('全局配置仅影响新安装游戏，既有配置在更新和重启后保持不变', () async {
     final root = await Directory.systemTemp.createTemp('dlssg-global-config-');
     addTearDown(() => root.delete(recursive: true));
     final manager = await ModManager.open(
@@ -1427,14 +1455,60 @@ void main() {
     );
     expect(game.hasCustomConfig, isFalse);
 
+    final installedIni = File(p.join(gameDir.path, 'dlssg_sm86.ini'));
+    final installedBytes = await installedIni.readAsBytes();
+    final installedHash = game.appliedProfileSha256;
+    await manager.saveGlobalConfig(
+      testProfile(maxGeneratedFrames: 3, loggingLevel: 2),
+    );
+    expect(await installedIni.readAsBytes(), installedBytes);
+    expect(game.appliedProfileSha256, installedHash);
+    expect(
+      (await manager.loadGlobalConfig()).value(
+        'FrameGeneration',
+        'MaxGeneratedFrames',
+      ),
+      '3',
+    );
+
+    final newGameDir = await Directory(p.join(root.path, 'new-game')).create();
+    final newExe = await File(p.join(newGameDir.path, 'game.exe'))
+        .writeAsString('exe');
+    final newGame = await manager.addManualGame('New game', newExe.path);
+    await manager.installMod(newGame.id);
+    expect(
+      (await manager.loadGameConfig(newGame.id))
+          .value('FrameGeneration', 'MaxGeneratedFrames'),
+      '3',
+    );
+    final newInstalledBytes = await File(
+      p.join(newGameDir.path, 'dlssg_sm86.ini'),
+    ).readAsBytes();
+
+    await manager.installMod(game.id);
+    expect(await installedIni.readAsBytes(), installedBytes);
+    final reopened = await ModManager.open(
+      dataDirectory: root,
+      scanner: _CountingSteamScanner({}),
+    );
+    expect(
+      (await reopened.loadGameConfig(game.id))
+          .value('FrameGeneration', 'MaxGeneratedFrames'),
+      '2',
+    );
+
     final custom = testProfile(maxGeneratedFrames: 1, loggingLevel: 3);
     await manager.saveGameConfig(game.id, custom);
     await manager.saveGlobalConfig(
-      testProfile(maxGeneratedFrames: 3, loggingLevel: 1),
+      testProfile(maxGeneratedFrames: 4, loggingLevel: 1),
     );
     expect(
       await File(p.join(gameDir.path, 'dlssg_sm86.ini')).readAsString(),
       contains('MaxGeneratedFrames=1'),
+    );
+    expect(
+      await File(p.join(newGameDir.path, 'dlssg_sm86.ini')).readAsBytes(),
+      newInstalledBytes,
     );
   });
 

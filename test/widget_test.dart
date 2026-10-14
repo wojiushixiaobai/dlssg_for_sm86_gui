@@ -10,6 +10,50 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('旧版游戏正常显示更新按钮，点击后弹窗提示先卸载重装', (tester) async {
+    final game = GameView(
+      GameEntry(id: 'legacy', name: '旧版游戏', source: const GameSource.manual()),
+      TargetState.ready,
+      const ModStatus(
+        ModStateKind.applied,
+        proxy: defaultProxy,
+        version: '0.3.5',
+        canUninstall: true,
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: GameSettings(
+            game,
+            true,
+            false,
+            ([GameEntry? game]) async {},
+            _FakeManager(installedVersion: '0.4.0'),
+            (action) => action(),
+            launch: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.textContaining('请先卸载旧版本'), findsNothing);
+    expect(find.widgetWithText(DesktopButton, '更新'), findsOneWidget);
+    expect(find.widgetWithText(DesktopButton, '卸载'), findsOneWidget);
+    await tester.tap(find.widgetWithText(DesktopButton, '更新'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(find.text('需要重新安装'), findsOneWidget);
+    expect(
+      find.text('0.4.0 的文件结构已变更，请先卸载旧版本，再重新安装；配置需在新版 INI 中重新设置。'),
+      findsOneWidget,
+    );
+    await tester.tap(find.widgetWithText(TextButton, '确定'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('游戏驱动检测期间显示提示并允许切换页面', (tester) async {
     tester.view.physicalSize = const Size(1280, 720);
     tester.view.devicePixelRatio = 1;
@@ -746,12 +790,14 @@ class _FakeManager implements ModManager {
     this.latestVersion,
     this.failLaunch = true,
     this.pendingGames,
+    this.installedVersion,
   });
 
   final List<GameView> games;
   final Future<String>? latestVersion;
   final bool failLaunch;
   final Future<List<GameView>>? pendingGames;
+  final String? installedVersion;
   int latestCalls = 0;
   int listCalls = 0;
   int refreshCalls = 0;
@@ -808,8 +854,10 @@ class _FakeManager implements ModManager {
   }
 
   @override
-  ManagerInfo get info =>
-      const ManagerInfo(installedVersion: null, modAvailable: false);
+  ManagerInfo get info => ManagerInfo(
+    installedVersion: installedVersion,
+    modAvailable: installedVersion != null,
+  );
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);

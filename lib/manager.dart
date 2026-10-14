@@ -12,6 +12,7 @@ import 'package:uuid/uuid.dart';
 import 'package:win32/win32.dart';
 
 import 'models.dart';
+import 'driver_fingerprints.dart';
 import 'dll_signature.dart';
 import 'steam.dart';
 
@@ -28,6 +29,15 @@ const bundledDriverFiles = [
 const latestReleaseUrl =
     'https://api.github.com/repos/sdli1995/dlssg_for_sm86/releases/latest';
 const modArchiveName = 'dlssg_for_sm86.tar.gz';
+const modZipArchiveName = 'dlssg_for_sm86.zip';
+const runtimeDriverFiles = [
+  'dlssg_sm86/backend/sm86_backend.dll',
+  'dlssg_sm86/kernels/fg_kernels.dll',
+  'dlssg_sm86/runtime/nvngx_dlssg.dll',
+  'dlssg_sm86/xefg/xefg_kernels.dll',
+  'dlssg_sm86/sr/nvngx_dlss.dll',
+  'dlssg_sm86/sr/sr_kernels.dll',
+];
 const appStorageDirectoryName = 'dlssg_for_sm86_gui';
 
 class ManagerInfo {
@@ -67,13 +77,15 @@ class ModManager {
   ModManager._(
     this.root,
     this.releaseRoot,
-    this.db, {
+    this.db,
+    this._fingerprints, {
     SteamScanner? scanner,
     http.Client? client,
   }) : scanner = scanner ?? SteamScanner(),
        client = client ?? http.Client();
   final Directory root;
   final Directory releaseRoot;
+  final DriverFingerprintCatalog _fingerprints;
   Database db;
   final SteamScanner scanner;
   final http.Client client;
@@ -131,6 +143,7 @@ class ModManager {
     http.Client? client,
     Future<void> Function()? onFirstLaunch,
   }) async {
+    final catalog = await DriverFingerprintCatalog.load();
     final root = dataDirectory ?? defaultDataDirectory();
     final releaseRoot = dataDirectory == null
         ? defaultReleaseDirectory()
@@ -151,17 +164,19 @@ class ModManager {
       root,
       releaseRoot,
       db,
+      catalog,
       scanner: scanner,
       client: client,
     );
     await manager._migrateLegacyGlobalProfile();
-    if (!manager.hasModPackage) {
-      manager._localDriver = await _LocalDriver.read(
+    final drivers =
         driversDirectory ??
-            Directory(
-              p.join(File(Platform.resolvedExecutable).parent.path, 'drivers'),
-            ),
-      );
+        Directory(
+          p.join(File(Platform.resolvedExecutable).parent.path, 'drivers'),
+        );
+    await manager._importOfflineArchive(drivers);
+    if (!manager.hasModPackage) {
+      manager._localDriver = await _LocalDriver.read(drivers);
       if (manager._localDriver != null) {
         await manager._ensureGlobalIniFromPackage();
       }
@@ -175,7 +190,12 @@ class ModManager {
         final stateText = db.toJsonText();
         manager.db = Database.fromJsonText(
           await Isolate.run(
-            () => _refreshSteamInBackground(dataPath, releasePath, stateText),
+            () => _refreshSteamInBackground(
+              dataPath,
+              releasePath,
+              stateText,
+              catalog,
+            ),
           ),
         );
       } else {
@@ -187,7 +207,10 @@ class ModManager {
 
   String? get _installedReleaseTag {
     final tag = _localDriver?.version ?? db.installedVersion;
-    return tag != null && RegExp(r'^[0-9A-Za-z._-]+$').hasMatch(tag)
+    return tag != null &&
+            tag != '.' &&
+            tag != '..' &&
+            RegExp(r'^[0-9A-Za-z._+-]+$').hasMatch(tag)
         ? tag
         : null;
   }
@@ -201,8 +224,21 @@ class ModManager {
       Directory(p.join(releaseRoot.path, 'dlssg_for_sm86'));
 
   bool get hasModPackage {
-    return _installedReleaseTag != null &&
-        File(p.join(_packageDirectory.path, 'dlssg_sm86.ini')).existsSync();
+    try {
+      return _installedReleaseTag != null &&
+          File(p.join(_packageDirectory.path, 'dlssg_sm86.ini')).existsSync() &&
+          (!_usesRuntimeDirectory(_installedReleaseTag) ||
+              _requiredRuntimeFilesIn(_packageDirectory).every(
+                (name) =>
+                    File(p.join(_packageDirectory.path, name)).existsSync(),
+              ));
+    } on FormatException {
+      return false;
+    } on StateError {
+      return false;
+    } on FileSystemException {
+      return false;
+    }
   }
 
   List<String> get availableProxies =>
@@ -248,14 +284,71 @@ class ModManager {
   }
 
   /// Creates the editable global configuration from the INI bundled with the
-  /// installed driver package. Existing user settings are never replaced.
-  Future<void> _ensureGlobalIniFromPackage() async {
-    if (await _globalIniFile.exists()) return;
+  /// installed driver package, adding future keys while preserving user values.
+  Future<void> _ensureGlobalIniFromPackage({bool migrateLegacy = false}) async {
     final source = _defaultIniFile();
     if (!await source.exists()) {
       throw StateError('驱动程序包缺少 dlssg_sm86.ini。');
     }
+    if (await _globalIniFile.exists()) {
+      final defaults = parseProfile(await source.readAsString());
+      final current = parseProfile(await _globalIniFile.readAsString());
+      if (!_usesRuntimeDirectory(_installedReleaseTag)) return;
+      if (!migrateLegacy) {
+        final merged = current.withDefaults(defaults);
+        if (merged.toIni() != current.toIni()) {
+          await atomicWrite(_globalIniFile, utf8.encode(merged.toIni()));
+        }
+        return;
+      }
+      await copyAtomic(
+        _globalIniFile,
+        File('${_globalIniFile.path}.pre-0.4.0'),
+      );
+    }
     await copyAtomic(source, _globalIniFile);
+  }
+
+  Future<void> _importOfflineArchive(Directory drivers) async {
+    if (!await drivers.exists()) return;
+    final archives = <File>[];
+    await for (final entry in drivers.list(followLinks: false)) {
+      if (entry is File &&
+          RegExp(r'^dlssg-release-[0-9A-Za-z._+-]+-x64\.zip$')
+              .hasMatch(p.basename(entry.path))) {
+        archives.add(entry);
+      }
+    }
+    if (archives.isEmpty) return;
+    String archiveVersion(File file) {
+      final name = p.basename(file.path);
+      return _releaseTag(
+        name.substring(
+          'dlssg-release-'.length,
+          name.length - '-x64.zip'.length,
+        ),
+      );
+    }
+
+    archives.removeWhere(
+      (file) => _DriverVersion.parse(archiveVersion(file)) == null,
+    );
+    if (archives.isEmpty) throw StateError('离线 ZIP 文件名缺少可比较的版本号。');
+    archives.sort(
+      (a, b) => compareDriverVersions(archiveVersion(a), archiveVersion(b))!,
+    );
+    final archive = archives.last;
+    final name = p.basename(archive.path);
+    final version = _releaseTag(
+      name.substring('dlssg-release-'.length, name.length - '-x64.zip'.length),
+    );
+    final comparison = compareDriverVersions(db.installedVersion, version);
+    if (hasModPackage && (comparison == null || comparison >= 0)) {
+      return;
+    }
+    final cached = File(p.join(releaseRoot.path, version, modZipArchiveName));
+    await copyAtomic(archive, cached);
+    await _activatePackage(cached, version, zip: true);
   }
 
   Future<List<GameView>> listGames() => _readGameViews(db.games);
@@ -270,6 +363,7 @@ class ModManager {
     final releasePath = releaseRoot.path;
     final database = db;
     final localDriver = _localDriver;
+    final fingerprints = _fingerprints;
     final cachedHashes = Map<String, _FileHashCacheEntry>.of(_fileHashCache);
     final cachedSignatures = Map<String, bool>.of(_signatureCache);
     final result = await Isolate.run(
@@ -281,6 +375,7 @@ class ModManager {
         cachedHashes,
         cachedSignatures,
         localDriver,
+        fingerprints,
       ),
     );
     _fileHashCache.addAll(result.hashes);
@@ -350,6 +445,7 @@ class ModManager {
         _installedReleaseTag,
         _cachedSha256,
         _signatureCache,
+        _fingerprints,
       );
       if (version != null) {
         return ModStatus(
@@ -386,6 +482,7 @@ class ModManager {
     final packagePath = _modDll(proxy).path;
     final installedVersion = _installedReleaseTag;
     final recorded = game.install;
+    final fingerprints = _fingerprints;
     return Isolate.run(
       () => _identifyProxyDll(
         File(targetPath),
@@ -395,6 +492,7 @@ class ModManager {
         installedVersion,
         sha256FileSync,
         {},
+        fingerprints,
       ),
     );
   }
@@ -429,22 +527,13 @@ class ModManager {
   Future<ConfigProfile> loadGlobalConfig() async {
     _requireMod();
     await _ensureGlobalIniFromPackage();
-    return parseProfile(await _globalIniFile.readAsString());
+    return parseProfile(await _globalIniFile.readAsString())
+        .withDefaults(parseProfile(await _defaultIniFile().readAsString()));
   }
 
   Future<void> saveGlobalConfig(ConfigProfile config) async {
     _requireMod();
     await atomicWrite(_globalIniFile, utf8.encode(config.toIni()));
-    for (final game in db.games.where(
-      (x) =>
-          !x.hasCustomConfig &&
-          x.install != null &&
-          x.exePath != null &&
-          File(x.exePath!).existsSync(),
-    )) {
-      await _writeInheritedConfig(game);
-    }
-    await _save();
   }
 
   Future<GameEntry> addManualGame(String name, String exePath) async {
@@ -520,6 +609,15 @@ class ModManager {
     _requireMod();
     final game = _game(id);
     final status = (await view(game)).mod;
+    if ((status.kind == ModStateKind.applied &&
+            requiresCleanInstall(status.version, _installedReleaseTag)) ||
+        (game.install != null &&
+            requiresCleanInstall(
+              game.install?.version,
+              _installedReleaseTag,
+            ))) {
+      throw StateError('0.4.0 的文件结构已变更，请先卸载旧版本，再重新安装；配置需在新版 INI 中重新设置。');
+    }
     if (game.install == null &&
         status.unrecognizedProxyHashes.length > 1 &&
         proxy == null) {
@@ -541,14 +639,36 @@ class ModManager {
     final hadTarget = await target.exists();
     final hasIni = await File(p.join(dir.path, 'dlssg_sm86.ini')).exists();
     final hasBackup = await _backupFile(game, desired).exists();
-    final knownTarget =
-        hadTarget && await _identifyProxyFresh(game, desired, target) != null;
+    final targetVersion = hadTarget
+        ? await _identifyProxyFresh(game, desired, target)
+        : null;
+    final knownTarget = targetVersion != null;
+    if (_usesRuntimeDirectory(_installedReleaseTag) &&
+        hasIni &&
+        !_usesRuntimeDirectory(
+          targetVersion ?? status.version ?? game.install?.version,
+        )) {
+      final current = parseProfile(
+        await File(p.join(dir.path, 'dlssg_sm86.ini')).readAsString(),
+      );
+      if (_looksLikeLegacyConfig(current)) {
+        throw StateError('游戏目录仍有旧版 INI，请先卸载旧版本并清理旧配置，再重新安装。');
+      }
+    }
+    if (knownTarget &&
+        requiresCleanInstall(targetVersion, _installedReleaseTag)) {
+      throw StateError('0.4.0 的文件结构已变更，请先卸载旧版本，再重新安装。');
+    }
     final isGameDll = hadTarget && !hasIni && !knownTarget;
     final needsBackup = isGameDll && !hasBackup;
     if (isGameDll) {
       if (game.source.kind == GameSourceKind.manual && !confirmOverwrite) {
         throw StateError('目标 DLL 不是已知 DLSSG 文件。确认后将保存其原始副本并覆盖。');
       }
+    }
+    if (_usesRuntimeDirectory(_installedReleaseTag)) {
+      await _installFullPackage(game, desired, needsBackup: needsBackup);
+      return;
     }
     final rollback = File(
       p.join(dir.path, '.dlssg-$desired-${_uuid.v4()}.rollback'),
@@ -591,6 +711,171 @@ class ModManager {
       await _save();
     } finally {
       if (await rollback.exists()) await rollback.delete();
+    }
+  }
+
+  Future<void> _installFullPackage(
+    GameEntry game,
+    String desired, {
+    required bool needsBackup,
+  }) async {
+    final dir = _gameDirectory(game);
+    final ini = File(p.join(dir.path, 'dlssg_sm86.ini'));
+    final previousInstall = game.install;
+    final previousBackups = List<BackupRecord>.of(game.backups);
+    final previousProxy = game.selectedProxy;
+    final previousCustom = game.hasCustomConfig;
+    final previousProfileHash = game.appliedProfileSha256;
+    final sources = <String, File>{desired: _modDll(desired)};
+    final runtime = Directory(p.join(_packageDirectory.path, 'dlssg_sm86'));
+    await for (final entity in runtime.list(
+      recursive: true,
+      followLinks: false,
+    )) {
+      if (entity is Link) throw StateError('驱动程序包含有符号链接。');
+      if (entity is File) {
+        sources[_upstreamArchivePath(
+              p.relative(entity.path, from: _packageDirectory.path),
+              wrapped: false,
+            )!] =
+            entity;
+      }
+    }
+    for (final name in _requiredRuntimeFilesIn(_packageDirectory)) {
+      final file = File(p.join(_packageDirectory.path, name));
+      if (!await file.exists() || await file.length() == 0) {
+        throw StateError('驱动程序包缺少运行文件：$name');
+      }
+    }
+    // A fresh install must not overwrite an unmanaged runtime directory.
+    for (final name in sources.keys.where((name) => name != desired)) {
+      final target = File(p.join(dir.path, name));
+      await _requireSafeDestination(dir, target.path);
+      if (await target.exists() &&
+          previousInstall == null &&
+          !await ini.exists()) {
+        throw StateError('游戏目录已有 dlssg_sm86 运行文件，请先卸载或清理旧版本后重新安装。');
+      }
+    }
+    // Leftover proxies from an older install must be removed separately.
+    for (final candidate in [...proxies, 'dxgi.dll', 'd3d12.dll']) {
+      if (candidate == desired || candidate == previousInstall?.proxy) continue;
+      final target = File(p.join(dir.path, candidate));
+      if (await target.exists() &&
+          await _identifyProxyFresh(game, candidate, target) != null) {
+        throw StateError('游戏目录仍有代理 $candidate，请先卸载旧代理后重新安装。');
+      }
+    }
+    final old = previousInstall?.proxy;
+    if (old != null && old != desired) {
+      final target = File(p.join(dir.path, old));
+      if (await target.exists() &&
+          await _identifyProxyFresh(game, old, target) == null) {
+        throw StateError('目标 DLL 已变更或无法确认属于 DLSSG，已保留原文件。');
+      }
+    }
+    final transaction = Directory(p.join(root.path, '.install-${_uuid.v4()}'));
+    final previousRuntime = <String, String>{};
+    for (final entry
+        in previousInstall?.runtimeFiles.entries ??
+            const <MapEntry<String, String>>[]) {
+      final name = _upstreamArchivePath(entry.key, wrapped: false);
+      if (name == null || !name.startsWith('dlssg_sm86/')) {
+        throw StateError('安装记录含有无效运行文件路径。');
+      }
+      previousRuntime[name] = entry.value;
+    }
+    final obsolete = previousRuntime.keys
+        .where((name) => !sources.containsKey(name))
+        .toList();
+    final snapshots = <String, File?>{};
+    var committed = false;
+    var rolledBack = false;
+    try {
+      for (final name in {
+        ...sources.keys,
+        ...obsolete,
+        'dlssg_sm86.ini',
+        ?old,
+      }) {
+        final target = File(p.join(dir.path, name));
+        await _requireSafeDestination(dir, target.path);
+        final saved = File(p.join(transaction.path, name));
+        if (await target.exists()) {
+          await copyAtomic(target, saved);
+          snapshots[name] = saved;
+        } else {
+          snapshots[name] = null;
+        }
+      }
+      if (needsBackup) {
+        await _recordBackup(game, desired, File(p.join(dir.path, desired)));
+      }
+      final hashes = <String, String>{};
+      for (final entry in sources.entries) {
+        final target = File(p.join(dir.path, entry.key));
+        await copyAtomic(entry.value, target);
+        if (entry.key != desired) hashes[entry.key] = await sha256File(target);
+      }
+      for (final name in obsolete) {
+        final file = File(p.join(dir.path, name));
+        if (await file.exists() &&
+            await sha256File(file) == previousRuntime[name]) {
+          await file.delete();
+        }
+      }
+      await _removeEmptyRuntimeDirectories(dir);
+      if (old != null && old != desired) await _restoreOrRemove(game, old);
+      if (!await ini.exists()) {
+        await atomicWrite(ini, await _configurationBytes());
+        game.hasCustomConfig = false;
+      } else if (game.appliedProfileSha256 == null) {
+        game.hasCustomConfig = true;
+      }
+      final current = parseProfile(await ini.readAsString());
+      final merged = current.withDefaults(
+        parseProfile(await _defaultIniFile().readAsString()),
+      );
+      if (merged.toIni() != current.toIni()) {
+        await atomicWrite(ini, utf8.encode(merged.toIni()));
+      }
+      game.appliedProfileSha256 = await sha256File(ini);
+      game.selectedProxy = desired;
+      game.install = ManagedInstall(
+        proxy: desired,
+        dllSha256: await sha256File(File(p.join(dir.path, desired))),
+        version: _installedReleaseTag!,
+        installedAt: DateTime.now().toUtc(),
+        runtimeFiles: hashes,
+      );
+      await _save();
+      committed = true;
+    } catch (_) {
+      for (final entry in snapshots.entries) {
+        final target = File(p.join(dir.path, entry.key));
+        if (entry.value != null) {
+          await copyAtomic(entry.value!, target);
+        } else if (await target.exists()) {
+          await target.delete();
+        }
+      }
+      game.install = previousInstall;
+      game.backups = previousBackups;
+      game.selectedProxy = previousProxy;
+      game.hasCustomConfig = previousCustom;
+      game.appliedProfileSha256 = previousProfileHash;
+      await _removeEmptyRuntimeDirectories(dir);
+      rolledBack = true;
+      rethrow;
+    } finally {
+      // A committed install should not fail merely because cleanup is blocked.
+      try {
+        if ((committed || rolledBack) && await transaction.exists()) {
+          await transaction.delete(recursive: true);
+        }
+      } on FileSystemException {
+        if (!committed) rethrow;
+      }
     }
   }
 
@@ -638,8 +923,10 @@ class ModManager {
       throw StateError('所选代理 DLL 不存在，已保留配置文件。');
     }
     final ini = File(p.join(dir.path, 'dlssg_sm86.ini'));
-    if (game.install == null &&
-        await _identifyProxyFresh(game, selected, target) == null) {
+    final identifiedVersion = await target.exists()
+        ? await _identifyProxyFresh(game, selected, target)
+        : null;
+    if (game.install == null && identifiedVersion == null) {
       if (!await ini.exists() ||
           !confirmUnrecognized ||
           expectedSha256 == null ||
@@ -657,7 +944,44 @@ class ModManager {
     } else {
       await _restoreOrRemove(game, selected);
     }
-    if (await ini.exists()) await ini.delete();
+    final runtimeFiles = <String, String>{...game.install?.runtimeFiles ?? {}};
+    // External installs can be cleaned when their runtime bytes match the package.
+    if (_usesRuntimeDirectory(_installedReleaseTag) &&
+        (runtimeFiles.isEmpty ||
+            (compareDriverVersions(identifiedVersion, _installedReleaseTag) ==
+                    0 &&
+                compareDriverVersions(
+                      game.install?.version,
+                      _installedReleaseTag,
+                    ) !=
+                    0))) {
+      for (final name in _requiredRuntimeFilesIn(_packageDirectory)) {
+        final source = File(p.join(_packageDirectory.path, name));
+        if (await source.exists()) {
+          runtimeFiles[name] = await sha256File(source);
+        }
+      }
+    }
+    for (final entry in runtimeFiles.entries) {
+      final relative = _upstreamArchivePath(entry.key, wrapped: false);
+      if (relative == null || !relative.startsWith('dlssg_sm86/')) continue;
+      final file = File(p.join(dir.path, relative));
+      await _requireSafeDestination(dir, file.path);
+      if (await file.exists() && await sha256File(file) == entry.value) {
+        await file.delete();
+      }
+    }
+    await _removeEmptyRuntimeDirectories(dir);
+    var hasOtherModProxy = false;
+    for (final candidate in proxies.where((proxy) => proxy != selected)) {
+      final file = File(p.join(dir.path, candidate));
+      if (await file.exists() &&
+          await _identifyProxyFresh(game, candidate, file) != null) {
+        hasOtherModProxy = true;
+        break;
+      }
+    }
+    if (!hasOtherModProxy && await ini.exists()) await ini.delete();
     game.install = null;
     game.appliedProfileSha256 = null;
     game.hasCustomConfig = false;
@@ -674,11 +998,23 @@ class ModManager {
         ? null
         : File(p.join(File(game.exePath!).parent.path, 'dlssg_sm86.ini'));
     if (ini != null && await ini.exists()) {
-      return parseProfile(await ini.readAsString());
+      final current = parseProfile(await ini.readAsString());
+      if (hasModPackage) {
+        final version = (await view(game)).mod.version;
+        if (version != null &&
+            (version == _installedReleaseTag ||
+                compareDriverVersions(version, _installedReleaseTag) == 0)) {
+          return current.withDefaults(
+            parseProfile(await _defaultIniFile().readAsString()),
+          );
+        }
+      }
+      return current;
     }
     _requireMod();
     await _ensureGlobalIniFromPackage();
-    return parseProfile(await _globalIniFile.readAsString());
+    return parseProfile(await _globalIniFile.readAsString())
+        .withDefaults(parseProfile(await _defaultIniFile().readAsString()));
   }
 
   /// Immediately persists a game's custom settings to its dlssg_sm86.ini.
@@ -695,12 +1031,6 @@ class ModManager {
   Future<List<int>> _configurationBytes() async {
     await _ensureGlobalIniFromPackage();
     return _globalIniFile.readAsBytes();
-  }
-
-  Future<void> _writeInheritedConfig(GameEntry game) async {
-    final ini = File(p.join(_gameDirectory(game).path, 'dlssg_sm86.ini'));
-    await atomicWrite(ini, await _configurationBytes());
-    game.appliedProfileSha256 = await sha256File(ini);
   }
 
   String _cachedSha256(File file) {
@@ -840,6 +1170,20 @@ class ModManager {
     }
     final release = Map<String, dynamic>.from(jsonDecode(response.body) as Map);
     final version = _releaseTag(release['tag_name']);
+    final assets = release['assets'] as List? ?? const [];
+    for (final asset in assets.whereType<Map>()) {
+      final normalized = version.replaceFirst(RegExp(r'^[vV](?=\d)'), '');
+      if (asset['name'] == 'dlssg-release-$version-x64.zip' ||
+          asset['name'] == 'dlssg-release-$normalized-x64.zip') {
+        final url = asset['browser_download_url']?.toString();
+        if (url != null && Uri.tryParse(url)?.scheme == 'https') {
+          return _LatestRelease(version, Uri.parse(url), zip: true);
+        }
+      }
+    }
+    if (_usesRuntimeDirectory(version)) {
+      throw StateError('上游最新 Release 缺少完整的 x64 ZIP 附件。');
+    }
     final archiveUrl = release['tarball_url']?.toString();
     if (archiveUrl == null || archiveUrl.isEmpty) {
       throw StateError('上游最新 Release 未提供 tar.gz 下载地址。');
@@ -854,15 +1198,14 @@ class ModManager {
     final version = release.version;
     final previousVersion = db.installedVersion;
     final releaseDirectory = _cachedPackageDirectory;
+    final archiveName = release.zip ? modZipArchiveName : modArchiveName;
     final archiveDirectory = Directory(p.join(releaseRoot.path, version));
-    final archiveFile = File(p.join(archiveDirectory.path, modArchiveName));
-    final previousCacheArchive = File(p.join(releaseRoot.path, modArchiveName));
+    final archiveFile = File(p.join(archiveDirectory.path, archiveName));
+    final previousCacheArchive = File(p.join(releaseRoot.path, archiveName));
     final previousCacheVersion = File(
-      p.join(releaseRoot.path, '$modArchiveName.version'),
+      p.join(releaseRoot.path, '$archiveName.version'),
     );
-    final legacyArchiveFile = File(
-      p.join(releaseDirectory.path, modArchiveName),
-    );
+    final legacyArchiveFile = File(p.join(releaseDirectory.path, archiveName));
     File? importedArchive;
     await archiveDirectory.create(recursive: true);
     if (await archiveFile.exists()) {
@@ -882,7 +1225,7 @@ class ModManager {
           .timeout(const Duration(seconds: 30));
       if (download.statusCode < 200 || download.statusCode >= 300) {
         throw StateError(
-          '下载上游 Release $version 的 tar.gz 失败：HTTP ${download.statusCode}',
+          '下载上游 Release $version 失败：HTTP ${download.statusCode}',
         );
       }
       final totalBytes = download.contentLength;
@@ -937,6 +1280,24 @@ class ModManager {
         totalBytes: archiveSize,
       ),
     );
+    try {
+      return await _activatePackage(archiveFile, version, zip: release.zip);
+    } catch (_) {
+      if (!await archiveFile.exists() &&
+          importedArchive != null &&
+          await importedArchive.exists()) {
+        await importedArchive.delete();
+      }
+      rethrow;
+    }
+  }
+
+  Future<String> _activatePackage(
+    File archiveFile,
+    String version, {
+    required bool zip,
+  }) async {
+    final releaseDirectory = _cachedPackageDirectory;
     final stage = Directory(p.join(releaseRoot.path, '.stage-${_uuid.v4()}'));
     final rollback = Directory(
       p.join(releaseRoot.path, '.previous-${_uuid.v4()}'),
@@ -947,55 +1308,38 @@ class ModManager {
     await stage.create(recursive: true);
     final originalVersion = db.installedVersion;
     final originalLocalDriver = _localDriver;
+    final originalGlobalIni = await _globalIniFile.exists()
+        ? await _globalIniFile.readAsBytes()
+        : null;
     var validated = false;
     var movedPrevious = false;
     var activated = false;
     var committed = false;
     try {
-      final compressedInput = InputFileStream(archiveFile.path);
-      final tarOutput = OutputFileStream(temporaryTar.path);
-      try {
-        final valid = GZipDecoder().decodeStream(
-          compressedInput,
-          tarOutput,
-          verify: true,
-        );
-        if (!valid) throw StateError('下载的 tar.gz 文件不完整或已损坏。');
-      } finally {
-        await compressedInput.close();
-        await tarOutput.close();
-      }
-
-      final tarInput = InputFileStream(temporaryTar.path);
-      Archive? archive;
-      try {
-        archive = TarDecoder().decodeStream(tarInput, verify: true);
-        for (final item in archive) {
-          final relative = _upstreamArchivePath(item.name);
-          if (!item.isFile || relative == null) continue;
-          final target = File(p.join(stage.path, relative));
-          await target.parent.create(recursive: true);
-          final output = OutputFileStream(target.path);
-          try {
-            item.writeContent(output);
-          } finally {
-            await output.close();
-          }
-        }
-      } finally {
-        if (archive != null) {
-          await archive.clear();
-        } else {
-          await tarInput.close();
-        }
-      }
+      final archivePath = archiveFile.path;
+      final stagePath = stage.path;
+      final tarPath = temporaryTar.path;
+      await Isolate.run(
+        () => _extractDriverArchive(archivePath, stagePath, tarPath, zip),
+      );
+      await Isolate.run(() => _validateDriverManifest(stagePath, version));
       for (final proxy in proxies) {
         final file = _proxyDllIn(stage, proxy);
-        if (!await file.exists()) throw StateError('驱动程序包缺少代理 DLL：$proxy');
+        if (!await file.exists() || await file.length() == 0) {
+          throw StateError('驱动程序包缺少代理 DLL：$proxy');
+        }
       }
       final ini = File(p.join(stage.path, 'dlssg_sm86.ini'));
-      if (!await ini.exists()) {
+      if (!await ini.exists() || await ini.length() == 0) {
         throw StateError('上游 Release 缺少 dlssg_sm86.ini。');
+      }
+      if (_usesRuntimeDirectory(version)) {
+        for (final name in _requiredRuntimeFilesIn(stage)) {
+          final file = File(p.join(stage.path, name));
+          if (!await file.exists() || await file.length() == 0) {
+            throw StateError('驱动程序包缺少运行文件：$name；请使用完整 Release ZIP。');
+          }
+        }
       }
       validated = true;
       if (await releaseDirectory.exists()) {
@@ -1005,8 +1349,16 @@ class ModManager {
       await stage.rename(releaseDirectory.path);
       activated = true;
       _localDriver = null;
-      await _ensureGlobalIniFromPackage();
       db.installedVersion = version;
+      await _ensureGlobalIniFromPackage(
+        migrateLegacy:
+            requiresCleanInstall(originalVersion, version) ||
+            (originalVersion == null &&
+                originalGlobalIni != null &&
+                _looksLikeLegacyConfig(
+                  parseProfile(utf8.decode(originalGlobalIni)),
+                )),
+      );
       await _save();
       committed = true;
       return version;
@@ -1015,13 +1367,15 @@ class ModManager {
       db.installedVersion = originalVersion;
       if (activated) await releaseDirectory.delete(recursive: true);
       if (movedPrevious) await rollback.rename(releaseDirectory.path);
+      if (originalGlobalIni != null) {
+        await atomicWrite(_globalIniFile, originalGlobalIni);
+      } else if (await _globalIniFile.exists()) {
+        await _globalIniFile.delete();
+      }
       // Discard malformed or incomplete packages so retry can download again.
       // Filesystem errors may be transient and do not prove a bad archive.
       if (!validated && error is! FileSystemException) {
         if (await archiveFile.exists()) await archiveFile.delete();
-        if (importedArchive != null && await importedArchive.exists()) {
-          await importedArchive.delete();
-        }
       }
       rethrow;
     } finally {
@@ -1039,6 +1393,165 @@ class ModManager {
       }
     }
   }
+}
+
+Future<void> _extractDriverArchive(
+  String archivePath,
+  String stagePath,
+  String tarPath,
+  bool zip,
+) async {
+  if (!zip) {
+    final compressedInput = InputFileStream(archivePath);
+    final tarOutput = OutputFileStream(tarPath);
+    try {
+      final valid = GZipDecoder().decodeStream(
+        compressedInput,
+        tarOutput,
+        verify: true,
+      );
+      if (!valid) throw StateError('下载的 tar.gz 文件不完整或已损坏。');
+    } finally {
+      await compressedInput.close();
+      await tarOutput.close();
+    }
+  }
+
+  final tarInput = InputFileStream(zip ? archivePath : tarPath);
+  Archive? archive;
+  try {
+    archive = zip
+        ? ZipDecoder().decodeStream(tarInput, verify: true)
+        : TarDecoder().decodeStream(tarInput, verify: true);
+    for (final item in archive) {
+      if (item.isSymbolicLink) throw StateError('驱动程序包含有符号链接。');
+      final relative = _upstreamArchivePath(item.name, wrapped: !zip);
+      if (!item.isFile || relative == null) continue;
+      final target = File(p.join(stagePath, relative));
+      await target.parent.create(recursive: true);
+      final output = OutputFileStream(target.path);
+      try {
+        item.writeContent(output);
+      } finally {
+        await output.close();
+      }
+      if (await target.length() != item.size) {
+        throw StateError('驱动程序包文件不完整：$relative');
+      }
+      // archive 4.x accepts verify but does not check ZIP CRCs itself.
+      if (zip && item.crc32 != null) {
+        var crc = 0;
+        await for (final chunk in target.openRead()) {
+          crc = getCrc32(chunk, crc);
+        }
+        if (crc != item.crc32) throw StateError('驱动程序包文件校验失败：$relative');
+      }
+    }
+  } finally {
+    if (archive != null) {
+      await archive.clear();
+    }
+    await tarInput.close();
+  }
+}
+
+bool _looksLikeLegacyConfig(ConfigProfile config) =>
+    config.value('FrameGeneration', 'Engine') == null &&
+    !config.sections.any(
+      (section) => ['dlssg', 'xessfg'].contains(section.name.toLowerCase()),
+    ) &&
+    (config.value('FrameGeneration', 'Optimized') != null ||
+        config.value('Compatibility', 'Preset') != null ||
+        config.value('Runtime', 'CacheDirectory') != null);
+
+Map? _driverManifestIn(Directory package) {
+  final file = File(p.join(package.path, 'manifest.json'));
+  if (!file.existsSync()) return null;
+  final manifest = jsonDecode(file.readAsStringSync());
+  if (manifest is! Map ||
+      manifest['files'] is! List ||
+      (manifest['files'] as List).isEmpty) {
+    throw StateError('发布包 manifest.json 缺少文件清单。');
+  }
+  return manifest;
+}
+
+List<String> _requiredRuntimeFilesIn(Directory package) {
+  final manifest = _driverManifestIn(package);
+  if (manifest == null) return runtimeDriverFiles;
+  final names = <String>{};
+  for (final entry in manifest['files'] as List) {
+    if (entry is! Map || entry['path'] is! String) {
+      throw StateError('发布包文件清单格式无效。');
+    }
+    final name = _upstreamArchivePath(entry['path'] as String, wrapped: false);
+    if (name != null && name.startsWith('dlssg_sm86/')) names.add(name);
+  }
+  final bundle = manifest['bundle'];
+  if (bundle is! Map || names.isEmpty) throw StateError('发布包缺少运行目录清单。');
+  for (final key in ['runtime_path', 'backend_path', 'kernel_pack_path']) {
+    final path = bundle[key];
+    if (path is! String ||
+        !names.contains(_upstreamArchivePath(path, wrapped: false))) {
+      throw StateError('发布包文件清单缺少 $key 指定的运行文件。');
+    }
+  }
+  return names.toList();
+}
+
+Future<void> _validateDriverManifest(String packagePath, String version) async {
+  final package = Directory(packagePath);
+  final manifest = _driverManifestIn(package);
+  if (manifest == null) return;
+  final bundle = manifest['bundle'];
+  if (bundle is Map &&
+      bundle['version'] is String &&
+      compareDriverVersions(bundle['version'] as String, version) != 0) {
+    throw StateError('发布包清单版本与 Release 版本不一致。');
+  }
+  final seen = <String>{};
+  for (final entry in manifest['files'] as List) {
+    if (entry is! Map || entry['path'] is! String) {
+      throw StateError('发布包文件清单格式无效。');
+    }
+    final name = _upstreamArchivePath(entry['path'] as String, wrapped: false);
+    if (name == null || !seen.add(name.toLowerCase())) {
+      throw StateError('发布包文件清单包含空路径或重复路径。');
+    }
+    final file = File(p.join(packagePath, name));
+    if (!await file.exists() || await file.length() == 0) {
+      throw StateError('发布包缺少清单文件：$name');
+    }
+    final size = entry['size'], expectedHash = entry['sha256'];
+    if (size != null &&
+        (size is! int || size < 0 || await file.length() != size)) {
+      throw StateError('发布包文件大小与清单不一致：$name');
+    }
+    if (expectedHash != null &&
+        (expectedHash is! String ||
+            !RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(expectedHash) ||
+            await sha256File(file) != expectedHash.toLowerCase())) {
+      throw StateError('发布包文件指纹与清单不一致：$name');
+    }
+  }
+}
+
+bool _matchesRuntimeFingerprints(
+  Directory directory,
+  Map<String, String> fingerprints,
+  String Function(File) hashFile,
+) {
+  if (fingerprints.isEmpty) return false;
+  for (final entry in fingerprints.entries) {
+    final name = _upstreamArchivePath(entry.key, wrapped: false);
+    if (name == null || !name.startsWith('dlssg_sm86/')) return false;
+    final file = File(p.join(directory.path, name));
+    if (!file.existsSync() ||
+        hashFile(file).toLowerCase() != entry.value.toLowerCase()) {
+      return false;
+    }
+  }
+  return true;
 }
 
 List<String> _candidateProxies(GameEntry game) {
@@ -1065,9 +1578,9 @@ class _GameViewsResult {
   final Map<String, bool> signatures;
 }
 
-// All display/install/uninstall decisions use this function. A signed proxy
-// can be recognized without a version catalog, but a certificate cannot tell
-// us its release version. Unknown files never count as an installed driver.
+// Display/install/uninstall share the same exact-byte fingerprint catalog.
+// A trusted signature remains a fallback for releases absent from the catalog;
+// it identifies the project but cannot identify a release version.
 String? _identifyProxyDll(
   File target,
   String proxy,
@@ -1076,16 +1589,111 @@ String? _identifyProxyDll(
   String? packageVersion,
   String Function(File) hashFile,
   Map<String, bool> signatureCache,
+  DriverFingerprintCatalog fingerprints,
 ) {
   final hash = hashFile(target).toLowerCase();
-  if (recorded?.proxy == proxy && recorded!.dllSha256.toLowerCase() == hash) {
-    return recorded.version == '本地包' ? '未知版本' : recorded.version;
+  final recordedMatches =
+      recorded?.proxy == proxy && recorded!.dllSha256.toLowerCase() == hash;
+  final recordedVersion =
+      recordedMatches && recorded.version != '本地包' && recorded.version != '未知版本'
+      ? recorded.version
+      : null;
+  if (recordedVersion != null && !_usesRuntimeDirectory(recordedVersion)) {
+    return recordedVersion;
   }
-  if (packaged.existsSync() && hashFile(packaged).toLowerCase() == hash) {
+  final matchesPackageProxy =
+      packaged.existsSync() && hashFile(packaged).toLowerCase() == hash;
+  final versionComparison = compareDriverVersions(
+    packageVersion,
+    recordedVersion,
+  );
+  if (recordedVersion != null &&
+      (!matchesPackageProxy ||
+          !_usesRuntimeDirectory(packageVersion) ||
+          versionComparison == 0 ||
+          (versionComparison != null &&
+              versionComparison < 0 &&
+              recorded!.runtimeFiles.isEmpty))) {
+    return recordedVersion;
+  }
+  if (matchesPackageProxy && _usesRuntimeDirectory(packageVersion)) {
+    final package =
+        proxy == defaultProxy ||
+            p.basename(packaged.parent.path) != 'alternatives' &&
+                p.basename(packaged.parent.path) != 'altnative'
+        ? packaged.parent
+        : packaged.parent.parent;
+    final fingerprints = <String, String>{};
+    for (final name in _requiredRuntimeFilesIn(package)) {
+      final file = File(p.join(package.path, name));
+      if (!file.existsSync()) {
+        fingerprints.clear();
+        break;
+      }
+      fingerprints[name] = hashFile(file);
+    }
+    if (recordedVersion != null) {
+      final previous = {
+        for (final entry in recorded!.runtimeFiles.entries)
+          _upstreamArchivePath(entry.key, wrapped: false): entry.value
+              .toLowerCase(),
+      };
+      final differs =
+          previous.length != fingerprints.length ||
+          fingerprints.entries.any(
+            (entry) => previous[entry.key] != entry.value.toLowerCase(),
+          );
+      if (!differs ||
+          (versionComparison != null &&
+              versionComparison < 0 &&
+              _matchesRuntimeFingerprints(
+                target.parent,
+                recorded.runtimeFiles,
+                hashFile,
+              ))) {
+        return recordedVersion;
+      }
+    }
+    if (_matchesRuntimeFingerprints(target.parent, fingerprints, hashFile)) {
+      return packageVersion;
+    }
+  }
+  if (recordedVersion != null) return recordedVersion;
+  final candidates =
+      fingerprints.proxyVersionCandidates[hash] ?? const <String>[];
+  final runtimeFingerprints = fingerprints.runtimeFingerprints;
+  final runtime = Directory(p.join(target.parent.path, 'dlssg_sm86'));
+  if (runtime.existsSync()) {
+    final matches = [
+      for (final version in candidates)
+        if (_matchesRuntimeFingerprints(
+          target.parent,
+          runtimeFingerprints[version] ?? const {},
+          hashFile,
+        ))
+          version,
+    ];
+    matches.sort(
+      (a, b) => runtimeFingerprints[b]!.length.compareTo(
+        runtimeFingerprints[a]!.length,
+      ),
+    );
+    if (matches.isNotEmpty &&
+        (matches.length == 1 ||
+            runtimeFingerprints[matches[0]]!.length >
+                runtimeFingerprints[matches[1]]!.length)) {
+      return matches.first;
+    }
+  }
+  final historicalVersion = fingerprints.proxyVersions[hash];
+  if (historicalVersion != null &&
+      (!_usesRuntimeDirectory(historicalVersion) || !runtime.existsSync())) {
+    return historicalVersion;
+  }
+  if (matchesPackageProxy && !_usesRuntimeDirectory(packageVersion)) {
     return packageVersion ?? '未知版本';
   }
-  final historicalVersion = _unsignedProxyVersions[hash];
-  if (historicalVersion != null) return historicalVersion;
+  if (candidates.isNotEmpty || recordedMatches) return '未知版本';
   final signed = signatureCache.putIfAbsent(
     hash,
     () => verifyDllSignature(target.path).isDlssg,
@@ -1093,21 +1701,17 @@ String? _identifyProxyDll(
   return signed ? '未知版本' : null;
 }
 
-// Only unsigned historical releases need individual hashes. Provenance and
-// upstream Git blob verification are documented in docs/dll-identification.md.
-const _unsignedProxyVersions = {
-  '03d445237d519ac48cd9226278a0f07aecd7ac597697697eb64404e1d51b3c5a': '0.1.0',
-};
-
 Future<String> _refreshSteamInBackground(
   String dataPath,
   String releasePath,
   String stateText,
+  DriverFingerprintCatalog fingerprints,
 ) async {
   final manager = ModManager._(
     Directory(dataPath),
     Directory(releasePath),
     Database.fromJsonText(stateText),
+    fingerprints,
   );
   try {
     await manager._refreshSteamOnStartup();
@@ -1125,11 +1729,13 @@ _GameViewsResult _listGamesInBackground(
   Map<String, _FileHashCacheEntry> cachedHashes,
   Map<String, bool> cachedSignatures,
   _LocalDriver? localDriver,
+  DriverFingerprintCatalog fingerprints,
 ) {
   final manager = ModManager._(
     Directory(dataPath),
     Directory(releasePath),
     database,
+    fingerprints,
   ).._localDriver = localDriver;
   try {
     manager._fileHashCache.addAll(cachedHashes);
@@ -1172,14 +1778,127 @@ class _LocalDriver {
 }
 
 class _LatestRelease {
-  const _LatestRelease(this.version, this.archiveUrl);
+  const _LatestRelease(this.version, this.archiveUrl, {this.zip = false});
   final String version;
   final Uri archiveUrl;
+  final bool zip;
+}
+
+bool _usesRuntimeDirectory(String? version) {
+  final parsed = _DriverVersion.parse(version);
+  return parsed != null && (parsed.major > 0 || parsed.minor >= 4);
+}
+
+bool requiresCleanInstall(String? installedVersion, String? packageVersion) {
+  final installed = _DriverVersion.parse(installedVersion);
+  return installed != null &&
+      installed.major == 0 &&
+      installed.minor < 4 &&
+      _usesRuntimeDirectory(packageVersion);
+}
+
+int? compareDriverVersions(String? left, String? right) {
+  final a = _DriverVersion.parse(left), b = _DriverVersion.parse(right);
+  return a == null || b == null ? null : a.compareTo(b);
+}
+
+bool isDriverUpdateAvailable(String? installedVersion, String? latestVersion) {
+  if (latestVersion == null) return false;
+  if (installedVersion == null) return true;
+  final comparison = compareDriverVersions(installedVersion, latestVersion);
+  return comparison == null
+      ? installedVersion != latestVersion
+      : comparison < 0;
+}
+
+class _DriverVersion implements Comparable<_DriverVersion> {
+  const _DriverVersion(this.major, this.minor, this.patch, this.prerelease);
+  final int major, minor, patch;
+  final List<String> prerelease;
+
+  static _DriverVersion? parse(String? text) {
+    final match = RegExp(
+      r'^[vV]?(\d+)\.(\d+)(?:\.(\d+))?(?:-([0-9A-Za-z.-]+))?(?:\+([0-9A-Za-z.-]+))?$',
+    ).firstMatch(text?.trim() ?? '');
+    if (match == null) return null;
+    final major = int.tryParse(match[1]!), minor = int.tryParse(match[2]!);
+    final patch = int.tryParse(match[3] ?? '0');
+    final prerelease = match[4]?.split('.') ?? <String>[];
+    if (major == null ||
+        minor == null ||
+        patch == null ||
+        prerelease.any((part) => part.isEmpty) ||
+        (match[5]?.split('.').any((part) => part.isEmpty) ?? false)) {
+      return null;
+    }
+    return _DriverVersion(major, minor, patch, prerelease);
+  }
+
+  @override
+  int compareTo(_DriverVersion other) {
+    for (final (a, b) in [
+      (major, other.major),
+      (minor, other.minor),
+      (patch, other.patch),
+    ]) {
+      if (a != b) return a.compareTo(b);
+    }
+    if (prerelease.isEmpty != other.prerelease.isEmpty) {
+      return prerelease.isEmpty ? 1 : -1;
+    }
+    for (
+      var index = 0;
+      index < prerelease.length && index < other.prerelease.length;
+      index++
+    ) {
+      final a = prerelease[index], b = other.prerelease[index];
+      final numericA = int.tryParse(a), numericB = int.tryParse(b);
+      final comparison = numericA != null && numericB != null
+          ? numericA.compareTo(numericB)
+          : numericA != null
+          ? -1
+          : numericB != null
+          ? 1
+          : a.compareTo(b);
+      if (comparison != 0) return comparison;
+    }
+    return prerelease.length.compareTo(other.prerelease.length);
+  }
+}
+
+Future<void> _requireSafeDestination(Directory root, String path) async {
+  if (!p.isWithin(root.path, path)) throw StateError('运行文件路径超出游戏目录。');
+  var current = path;
+  while (current != root.path) {
+    if (await FileSystemEntity.type(current, followLinks: false) ==
+        FileSystemEntityType.link) {
+      throw StateError('游戏运行目录含有符号链接，已保留原文件。');
+    }
+    current = p.dirname(current);
+  }
+}
+
+Future<void> _removeEmptyRuntimeDirectories(Directory gameDirectory) async {
+  final runtime = Directory(p.join(gameDirectory.path, 'dlssg_sm86'));
+  if (!await runtime.exists()) return;
+  await _requireSafeDestination(gameDirectory, runtime.path);
+  final directories = <Directory>[runtime];
+  await for (final entry in runtime.list(recursive: true, followLinks: false)) {
+    if (entry is Directory) directories.add(entry);
+  }
+  directories.sort((a, b) => b.path.length.compareTo(a.path.length));
+  for (final directory in directories) {
+    if (await directory.list(followLinks: false).isEmpty) {
+      await directory.delete();
+    }
+  }
 }
 
 String _releaseTag(Object? tag) {
   final normalized = tag?.toString().trim() ?? '';
-  if (!RegExp(r'^[0-9A-Za-z._-]+$').hasMatch(normalized)) {
+  if (normalized == '.' ||
+      normalized == '..' ||
+      !RegExp(r'^[0-9A-Za-z._+-]+$').hasMatch(normalized)) {
     throw StateError('上游 latest Release 缺少可用的 tag_name。');
   }
   return normalized;
@@ -1188,15 +1907,15 @@ String _releaseTag(Object? tag) {
 /// GitHub source archives wrap every file in one repository-name directory.
 /// Only return a safe path below that directory, preserving the package's
 /// complete file and subdirectory layout during extraction.
-String? _upstreamArchivePath(String name) {
+String? _upstreamArchivePath(String name, {bool wrapped = true}) {
   final normalized = name.replaceAll('\\', '/');
   final parts = normalized.split('/').where((part) => part.isNotEmpty).toList();
   if (normalized.startsWith('/') ||
-      parts.any((part) => part == '.' || part == '..')) {
-    throw StateError('tar.gz 含有不安全路径');
+      parts.any((part) => part == '.' || part == '..' || part.contains(':'))) {
+    throw StateError('驱动程序包含有不安全路径');
   }
-  if (parts.length == 1) return null;
-  final relative = parts.skip(1).join('/');
+  if (parts.isEmpty || (wrapped && parts.length == 1)) return null;
+  final relative = (wrapped ? parts.skip(1) : parts).join('/');
   if (p.isAbsolute(relative) || RegExp(r'^[A-Za-z]:').hasMatch(relative)) {
     throw StateError('tar.gz 含有不安全路径');
   }

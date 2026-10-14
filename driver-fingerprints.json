@@ -1,0 +1,2366 @@
+{
+  "schema_version": 2,
+  "source_repository": "https://github.com/sdli1995/dlssg_for_sm86",
+  "hash_algorithm": "SHA-256",
+  "git_object_integrity": "SHA-1 of blob header and bytes verified against each tree entry",
+  "tag_count": 8,
+  "file_count": 308,
+  "unique_blob_count": 139,
+  "proxy_fingerprint_count": 84,
+  "ambiguous_proxy_fingerprints": {},
+  "runtime_fingerprints": {
+    "0.4.0": {
+      "dlssg_sm86/backend/sm86_backend.dll": "30ffc6e09a347ccde87ecc6fa54fd7818f5ed8a9353f5c31c2a90835c7f0ca9b",
+      "dlssg_sm86/kernels/fg_kernels.dll": "1394c2d5d9cc8938ba3e52b043048d20d6d4c13a019c161b11a3dfd16343ec24",
+      "dlssg_sm86/runtime/nvngx_dlssg.dll": "cadee1aa6db3907babdc3285da2aebc4553d92b89c38ba3eae8abd8bba1bea72",
+      "dlssg_sm86/xefg/xefg_kernels.dll": "1b354c42596f6fad71dbe6ddd600ad2bf637f906ee6adb3de1b3dad01cd7e3f9"
+    }
+  },
+  "tags": [
+    {
+      "tag": "0.1.0",
+      "tag_object": "a4760d4a49d6c791bba88f24378a56c0dd1c57b0",
+      "commit": "a4760d4a49d6c791bba88f24378a56c0dd1c57b0",
+      "files": [
+        {
+          "path": "README.en.md",
+          "mode": "100644",
+          "git_blob": "2ea8312265ea7aaa41724fddf6011fb8c90b71dc",
+          "size": 11756,
+          "sha256": "101282be1e64ffc98554d9c77813aba91f81af941cade9526aaa171a104c82de"
+        },
+        {
+          "path": "README.md",
+          "mode": "100644",
+          "git_blob": "147eee3daa3fb6b96c207a6e8839eabe04c8167b",
+          "size": 11564,
+          "sha256": "454eb6ac6e84a119ae0f53b6a67b83e4cbb3ac748fcf9fcfaa065cd7f22a3893"
+        },
+        {
+          "path": "THIRD_PARTY_NOTICES.txt",
+          "mode": "100644",
+          "git_blob": "5463da38b9b96004de93fea251b82399d2dbc79d",
+          "size": 2081,
+          "sha256": "71435db5b43c8d5846a1897e1d7dc4e09bb225f4d94abe6a25f7cf6935b92470"
+        },
+        {
+          "path": "dlssg_sm86.ini",
+          "mode": "100644",
+          "git_blob": "dc1cdeea47449a6e24096bd30eb0cbe68148f657",
+          "size": 1459,
+          "sha256": "77a698310818b90039b72c61331cb50e7fc6692eff220ca9eb14c494998c96b8"
+        },
+        {
+          "path": "version.dll",
+          "mode": "100644",
+          "git_blob": "2fd84cc35dcab16fa7a58321d6b4e1b4141145c3",
+          "size": 10522624,
+          "sha256": "03d445237d519ac48cd9226278a0f07aecd7ac597697697eb64404e1d51b3c5a",
+          "proxy_version": "0.1.0"
+        }
+      ]
+    },
+    {
+      "tag": "0.3.0",
+      "tag_object": "7880d3d8aa0382f32c5b428639ebbdc3da47aabd",
+      "commit": "7880d3d8aa0382f32c5b428639ebbdc3da47aabd",
+      "files": [
+        {
+          "path": "310.1/.DS_Store",
+          "mode": "100644",
+          "git_blob": "11e9d80a6a5b1b94b2769c72ebf6b0e794cac940",
+          "size": 6148,
+          "sha256": "38155ef44ad7040a5b8a0127983acc1af8f2687f85e9eacc60b02df9e77b2df7"
+        },
+        {
+          "path": "310.1/alternatives/README.md",
+          "mode": "100644",
+          "git_blob": "2cc51e59a57bfac68077dc00e4cf435500362b80",
+          "size": 2351,
+          "sha256": "5230b1cc496a70b5fb1f9c1bf86dab75c576646cd1639189eefd18c6e5b41efb"
+        },
+        {
+          "path": "310.1/alternatives/d3d12.dll",
+          "mode": "100644",
+          "git_blob": "4eacfb8592416d13e4a0badac00c203f00c770bc",
+          "size": 18970400,
+          "sha256": "337ed97b9303192915e6edcac0310dca8817f72baa414dffa83d238cdb2ca724",
+          "proxy_version": "0.3.0"
+        },
+        {
+          "path": "310.1/alternatives/dbghelp.dll",
+          "mode": "100644",
+          "git_blob": "441eec9653ad4da0d89893144dc0fd09983c68ba",
+          "size": 18987808,
+          "sha256": "1537a207f6490f49373ac8164e2021e6f25bd212e4abc8564dfd8110ad3afe28",
+          "proxy_version": "0.3.0"
+        },
+        {
+          "path": "310.1/alternatives/dinput8.dll",
+          "mode": "100644",
+          "git_blob": "3bab7874bc35858f8e27bc9afc33cd60282a0d1b",
+          "size": 18969376,
+          "sha256": "e87a61ef84f60b58e5f3b841006992a30d8fd2998096f065b317e7126ebccd9b",
+          "proxy_version": "0.3.0"
+        },
+        {
+          "path": "310.1/alternatives/dxgi.dll",
+          "mode": "100644",
+          "git_blob": "5a36c9c77256119134b22210721712e11e33f181",
+          "size": 18970400,
+          "sha256": "f8d823609f994861d27abf50c9cb78386202650f8da1c868eaa2a40f13feef70",
+          "proxy_version": "0.3.0"
+        },
+        {
+          "path": "310.1/alternatives/winmm.dll",
+          "mode": "100644",
+          "git_blob": "373fb7a89b6de37ad0064facc0e35ae6eb6ace39",
+          "size": 18981664,
+          "sha256": "dde7ec668130b09f807338c4c594609a75349860bb5ca4428797f6ab2175b9c1",
+          "proxy_version": "0.3.0"
+        },
+        {
+          "path": "310.1/version.dll",
+          "mode": "100644",
+          "git_blob": "26db0dc7cb362cabd7074d3ccda1d3d079ddea7f",
+          "size": 18969888,
+          "sha256": "4646fe15a21c01d251865253f55cefd5892dd2e561ece0c8efa49ae78b5de32e",
+          "proxy_version": "0.3.0"
+        },
+        {
+          "path": "README.en.md",
+          "mode": "100644",
+          "git_blob": "7e7a7e97c4dc697854675a7347aff06e407ca490",
+          "size": 11525,
+          "sha256": "7f926920df4e93bca24616248f6c3c03ff583958a51205528c1bd962468d92f3"
+        },
+        {
+          "path": "README.md",
+          "mode": "100644",
+          "git_blob": "39bfb0d4a15767655cd5ade24de9828fc1fdd1df",
+          "size": 10604,
+          "sha256": "4f66b61809b46e1362472a5c5d1b9582372c24cda889b8800f98c01da3230c63"
+        },
+        {
+          "path": "THIRD_PARTY_NOTICES.txt",
+          "mode": "100644",
+          "git_blob": "1b7990dc2700f9c1afcff144cc92faef7f7fbee4",
+          "size": 2908,
+          "sha256": "4a10e23a2d55371069a55f2a1e80d34b5784658b1de0cb05b18b531893afb2cc"
+        },
+        {
+          "path": "alternatives/README.md",
+          "mode": "100644",
+          "git_blob": "2cc51e59a57bfac68077dc00e4cf435500362b80",
+          "size": 2351,
+          "sha256": "5230b1cc496a70b5fb1f9c1bf86dab75c576646cd1639189eefd18c6e5b41efb"
+        },
+        {
+          "path": "alternatives/d3d12.dll",
+          "mode": "100644",
+          "git_blob": "3bc882b8217a1a070c334d212d52ac047b0abd1b",
+          "size": 17529632,
+          "sha256": "63e7c3a1ba0b10e37e1a162ccf3aa2e19a0f7359de63787585c09baffd67ad45",
+          "proxy_version": "0.3.0"
+        },
+        {
+          "path": "alternatives/dbghelp.dll",
+          "mode": "100644",
+          "git_blob": "a4b74fd95c7a01f3bdf91161e807883d16ae8703",
+          "size": 17547040,
+          "sha256": "10e2fe2d84b8b674e184891ca5211b01c43c6700e1c8b8c6d4969286f653bff8",
+          "proxy_version": "0.3.0"
+        },
+        {
+          "path": "alternatives/dinput8.dll",
+          "mode": "100644",
+          "git_blob": "842aa5f51b712b9565ac216ff516d2105e2f0747",
+          "size": 17528608,
+          "sha256": "01fdd5e77e64045400a2e7b6f35f98f3403335e30cd9def0e996f78240aa65da",
+          "proxy_version": "0.3.0"
+        },
+        {
+          "path": "alternatives/dxgi.dll",
+          "mode": "100644",
+          "git_blob": "88a16d4ff39cd91d82f8df3ba4c436751c431498",
+          "size": 17529632,
+          "sha256": "ae37150fe056f3388571481ad4aaf78fad720e9b52eb7e6e1e9d2dff85df841e",
+          "proxy_version": "0.3.0"
+        },
+        {
+          "path": "alternatives/winmm.dll",
+          "mode": "100644",
+          "git_blob": "352a64e164ec6a1b33215ecbf2dd3ba318794ff2",
+          "size": 17540896,
+          "sha256": "197f97e90541ae688d291ef388b1eddc0c55cb657603eb55dea2d3d178b1e384",
+          "proxy_version": "0.3.0"
+        },
+        {
+          "path": "archive/.DS_Store",
+          "mode": "100644",
+          "git_blob": "0c3bd20e13916358a1d70a527c49f568e278112f",
+          "size": 8196,
+          "sha256": "f283782a5a06efee05e33b866f4b69bf9b096f5a796da7546ff5af8aedcd111c"
+        },
+        {
+          "path": "archive/0.1.0/README.en.md",
+          "mode": "100644",
+          "git_blob": "2ea8312265ea7aaa41724fddf6011fb8c90b71dc",
+          "size": 11756,
+          "sha256": "101282be1e64ffc98554d9c77813aba91f81af941cade9526aaa171a104c82de"
+        },
+        {
+          "path": "archive/0.1.0/README.md",
+          "mode": "100644",
+          "git_blob": "147eee3daa3fb6b96c207a6e8839eabe04c8167b",
+          "size": 11564,
+          "sha256": "454eb6ac6e84a119ae0f53b6a67b83e4cbb3ac748fcf9fcfaa065cd7f22a3893"
+        },
+        {
+          "path": "archive/0.1.0/THIRD_PARTY_NOTICES.txt",
+          "mode": "100644",
+          "git_blob": "5463da38b9b96004de93fea251b82399d2dbc79d",
+          "size": 2081,
+          "sha256": "71435db5b43c8d5846a1897e1d7dc4e09bb225f4d94abe6a25f7cf6935b92470"
+        },
+        {
+          "path": "archive/0.1.0/dlssg_sm86.ini",
+          "mode": "100644",
+          "git_blob": "dc1cdeea47449a6e24096bd30eb0cbe68148f657",
+          "size": 1459,
+          "sha256": "77a698310818b90039b72c61331cb50e7fc6692eff220ca9eb14c494998c96b8"
+        },
+        {
+          "path": "archive/0.1.0/version.dll",
+          "mode": "100644",
+          "git_blob": "2fd84cc35dcab16fa7a58321d6b4e1b4141145c3",
+          "size": 10522624,
+          "sha256": "03d445237d519ac48cd9226278a0f07aecd7ac597697697eb64404e1d51b3c5a",
+          "proxy_version": "0.1.0"
+        },
+        {
+          "path": "archive/0.2.4/.DS_Store",
+          "mode": "100644",
+          "git_blob": "ce625eabc46f3d942a6222cba2dd9d83064f3001",
+          "size": 8196,
+          "sha256": "34f46b022d404f2ba136a1eb16b1e0ca1050147b1aa495fd90d0489da849f044"
+        },
+        {
+          "path": "archive/0.2.4/README.en.md",
+          "mode": "100644",
+          "git_blob": "cbe331afde28d6e51b448cdbe5d946d199612240",
+          "size": 15545,
+          "sha256": "d01d4828ca1cbd8bc1dc0d9df0d2ea4099ce63dfa6dbb2075573b354ff49feec"
+        },
+        {
+          "path": "archive/0.2.4/README.md",
+          "mode": "100644",
+          "git_blob": "c3444a0f22937949150799285d0bf5f3a39b96c3",
+          "size": 13831,
+          "sha256": "b052c66b4f6b0f3493a5c8f39272c0b1361abf44b58d4d1405fd37b7064a7403"
+        },
+        {
+          "path": "archive/0.2.4/THIRD_PARTY_NOTICES.txt",
+          "mode": "100644",
+          "git_blob": "3f68bae2ea9f9e6cabdd3cd2a739ffd4c2d29131",
+          "size": 2863,
+          "sha256": "689f743ccf99644abd2992e62e6562b00d0bc07ec508153d3a51f7270e5cc5ee"
+        },
+        {
+          "path": "archive/0.2.4/altnative/dinput8.dll",
+          "mode": "100644",
+          "git_blob": "a00546c88e01531943a6e7953283fffc0e5d3919",
+          "size": 15666496,
+          "sha256": "ef3c3d49c5b5c8a17289c24da9b22885570793d72f3db628fa500f9efdb20489",
+          "proxy_version": "0.2.4"
+        },
+        {
+          "path": "archive/0.2.4/altnative/dxgi.dll",
+          "mode": "100644",
+          "git_blob": "6291c9bd3929ca4c72291015c9fe8d20d8e715bd",
+          "size": 15668032,
+          "sha256": "8d29eddbd7f1c3e272d07f94ab8812a80ef5b7aeb73923320bf9a432ddcf74c0",
+          "proxy_version": "0.2.4"
+        },
+        {
+          "path": "archive/0.2.4/altnative/winhttp.dll",
+          "mode": "100644",
+          "git_blob": "bda9e642f3ffaf58b4dd9c630d7fc5d85e957112",
+          "size": 15674176,
+          "sha256": "1619839e4d1b6145ce9a587ba807f42e64f2b0984af9e81700d42ccf46ff7253",
+          "proxy_version": "0.2.4"
+        },
+        {
+          "path": "archive/0.2.4/altnative/winmm.dll",
+          "mode": "100644",
+          "git_blob": "7166b7feef012399e578a741ed54423665d85b74",
+          "size": 15678272,
+          "sha256": "1004dd4ee0edbe4e1af4c8c7b30d4786bea0f5e7c0412566996b4c2543ae7e36",
+          "proxy_version": "0.2.4"
+        },
+        {
+          "path": "archive/0.2.4/config/presets/sm86-default.ini",
+          "mode": "100644",
+          "git_blob": "f79dc0eee5f7267b1ecdf19dbee50074dcfc8f59",
+          "size": 208,
+          "sha256": "ddf1e36d952c9fe1626b3321957c49f2268a562fcc9e707de6a61d66be9be32e"
+        },
+        {
+          "path": "archive/0.2.4/config/presets/sm86-performance.ini",
+          "mode": "100644",
+          "git_blob": "cec805f86656c8685dd20b8552cde2456bc56d80",
+          "size": 269,
+          "sha256": "0a5cbc9940f699618c09d538f057f5598c0daab62cff58827e5644bbabcfec3a"
+        },
+        {
+          "path": "archive/0.2.4/dlssg_sm86.ini",
+          "mode": "100644",
+          "git_blob": "f68878e557c6be4babf678d16efabe93fd3492c0",
+          "size": 581,
+          "sha256": "fd7f0722194e6e8d8c085327d9826effb411925a69a5e7549d70eff26a9f18b5"
+        },
+        {
+          "path": "archive/0.2.4/docs/NATIVE_INI.md",
+          "mode": "100644",
+          "git_blob": "e3e35f5146cee7e44b7fa80925cc90ac8c74d12a",
+          "size": 3555,
+          "sha256": "3063fe6b4701c07c60ce32bc5a4552b7fa6e6c0c1bcf6238f178c0879037b805"
+        },
+        {
+          "path": "archive/0.2.4/docs/ROADMAP.md",
+          "mode": "100644",
+          "git_blob": "eb25218ba83274ba50f70085d7bc2f34e7db750a",
+          "size": 975,
+          "sha256": "18f13e89649ea1c8e76113ce3c338b0d280ecd67effb0b2ccb41a5fa8a86bb9d"
+        },
+        {
+          "path": "archive/0.2.4/version.dll",
+          "mode": "100644",
+          "git_blob": "50c04d7f4bf26e0419432cc2ae02588c4a303a23",
+          "size": 15667520,
+          "sha256": "c844646d835a7b88ed1382eea80403d38b433f8ac09cf92581c73698c44ae7c2",
+          "proxy_version": "0.2.4"
+        },
+        {
+          "path": "dlssg_sm86.ini",
+          "mode": "100644",
+          "git_blob": "67944c6c203acaa2b36935b57c36894c1c35987a",
+          "size": 2099,
+          "sha256": "a3c922e5612ea2ff75ebb3562ee6305bcee85655b16022b06f052944b15064f1"
+        },
+        {
+          "path": "version.dll",
+          "mode": "100644",
+          "git_blob": "04c4da50227e4aeec60625e007b2dc60655d80d3",
+          "size": 17529120,
+          "sha256": "a22d2453f25d7df3fdc0d6d683c21f01769a115439d58f1341183a75faaf8c7d",
+          "proxy_version": "0.3.0"
+        }
+      ]
+    },
+    {
+      "tag": "0.3.1",
+      "tag_object": "117faf5c70333b34160f5d21d01c222261cc5af1",
+      "commit": "117faf5c70333b34160f5d21d01c222261cc5af1",
+      "files": [
+        {
+          "path": "310.1/.DS_Store",
+          "mode": "100644",
+          "git_blob": "11e9d80a6a5b1b94b2769c72ebf6b0e794cac940",
+          "size": 6148,
+          "sha256": "38155ef44ad7040a5b8a0127983acc1af8f2687f85e9eacc60b02df9e77b2df7"
+        },
+        {
+          "path": "310.1/alternatives/README.md",
+          "mode": "100644",
+          "git_blob": "2cc51e59a57bfac68077dc00e4cf435500362b80",
+          "size": 2351,
+          "sha256": "5230b1cc496a70b5fb1f9c1bf86dab75c576646cd1639189eefd18c6e5b41efb"
+        },
+        {
+          "path": "310.1/alternatives/d3d12.dll",
+          "mode": "100644",
+          "git_blob": "267761aff8d7aabeaae18a05f66c9afc91fcd36d",
+          "size": 27946272,
+          "sha256": "77860075059a630a90327e417cae7db6067ff56878ddb429d5d741c813dd4995",
+          "proxy_version": "0.3.1"
+        },
+        {
+          "path": "310.1/alternatives/dbghelp.dll",
+          "mode": "100644",
+          "git_blob": "1c9c18eff95c543f4cc9fb510712d454ba98d069",
+          "size": 27963680,
+          "sha256": "c4679d28f69e5c99aec290725ef930a2fc58c657514f65f650efdbb0a308143c",
+          "proxy_version": "0.3.1"
+        },
+        {
+          "path": "310.1/alternatives/dinput8.dll",
+          "mode": "100644",
+          "git_blob": "99848c23b2d945d51a7afee4c86c8a6ddf009dd1",
+          "size": 27944736,
+          "sha256": "94767cc139f8ecb6373765cd102cc85a28601cd55101f53ae854e61a4cbf4868",
+          "proxy_version": "0.3.1"
+        },
+        {
+          "path": "310.1/alternatives/dxgi.dll",
+          "mode": "100644",
+          "git_blob": "2d137075ac0705b00ca7b66fdd479f440b214347",
+          "size": 27945760,
+          "sha256": "7dec971ff126f427b855d1238ff2b2ecb6ab7616c467776f882e7a4e244cc5b5",
+          "proxy_version": "0.3.1"
+        },
+        {
+          "path": "310.1/alternatives/winmm.dll",
+          "mode": "100644",
+          "git_blob": "79970125dd5df23647555f86c0aff281d2b20959",
+          "size": 27957024,
+          "sha256": "2312e761ee589204ddf4d402c1ae36367aa73d9bcd9fdfd9bbe56c06604a63e6",
+          "proxy_version": "0.3.1"
+        },
+        {
+          "path": "310.1/version.dll",
+          "mode": "100644",
+          "git_blob": "2392669ac81fb9bf8d069e08885aaff3a4b9654d",
+          "size": 27945760,
+          "sha256": "ca4146f76d4b176d17246d8c0e66042c57f7b25dcabea3200b33821522597211",
+          "proxy_version": "0.3.1"
+        },
+        {
+          "path": "README.en.md",
+          "mode": "100644",
+          "git_blob": "76b8d35c3039ccfc129c27e1048af2e3d1def3f2",
+          "size": 11739,
+          "sha256": "3bce862335d298e874b2f5fa3cdab8d2dd2733468c87eebd813a5e403e63cacb"
+        },
+        {
+          "path": "README.md",
+          "mode": "100644",
+          "git_blob": "adff41e9e230b48a7a08d145ea8002a9cf5d9601",
+          "size": 10768,
+          "sha256": "309862454dfe5d2b5a0f35110b3d0e995ed6d9636ab1b75ec88d1f60e7a79703"
+        },
+        {
+          "path": "THIRD_PARTY_NOTICES.txt",
+          "mode": "100644",
+          "git_blob": "125de4126918c8d93774dd5f54dff29ed08dea30",
+          "size": 3349,
+          "sha256": "ac3b44ab30a4235edd18feca1ab4f802d57c8d3d0ee4878dc77b81a6b127155f"
+        },
+        {
+          "path": "alternatives/README.md",
+          "mode": "100644",
+          "git_blob": "2cc51e59a57bfac68077dc00e4cf435500362b80",
+          "size": 2351,
+          "sha256": "5230b1cc496a70b5fb1f9c1bf86dab75c576646cd1639189eefd18c6e5b41efb"
+        },
+        {
+          "path": "alternatives/d3d12.dll",
+          "mode": "100644",
+          "git_blob": "c23ebcd4e286e336c8ca21bbe0fea80185ebdc8a",
+          "size": 29677344,
+          "sha256": "30b48198f0cd100827037bdbe27b2a15bc050ff1c276c520ffc41705920f07b1",
+          "proxy_version": "0.3.1"
+        },
+        {
+          "path": "alternatives/dbghelp.dll",
+          "mode": "100644",
+          "git_blob": "0b7d3ca559dd584386670bbc4f0cf47cdde00f5f",
+          "size": 29694752,
+          "sha256": "13071d2a8cccd5a4707eedd5ccf00aee6df8b6aceba03e7c1dda9358f0f2c998",
+          "proxy_version": "0.3.1"
+        },
+        {
+          "path": "alternatives/dinput8.dll",
+          "mode": "100644",
+          "git_blob": "ef03c4eea9d274a93829a2284a8e1078c1c1b8ec",
+          "size": 29675808,
+          "sha256": "9f77a9070a7a3277f3d7e405e49e61de7e53101e2925f75bacd9cc204e14a0da",
+          "proxy_version": "0.3.1"
+        },
+        {
+          "path": "alternatives/dxgi.dll",
+          "mode": "100644",
+          "git_blob": "6a12a763b07ff3e400f34ff3057a8b3e3ed09e5a",
+          "size": 29676832,
+          "sha256": "539138464137855f5962811588000a95897b3ddb14f5b44a197e37c3e17bd9fb",
+          "proxy_version": "0.3.1"
+        },
+        {
+          "path": "alternatives/winmm.dll",
+          "mode": "100644",
+          "git_blob": "ddcf142a7bbd926989ec7197cd098e69175ec45b",
+          "size": 29688096,
+          "sha256": "40eaa7dff6eb6281917eb84aa1c6e580c9e69f8736b647d28decb561f6efd7eb",
+          "proxy_version": "0.3.1"
+        },
+        {
+          "path": "archive/.DS_Store",
+          "mode": "100644",
+          "git_blob": "0c3bd20e13916358a1d70a527c49f568e278112f",
+          "size": 8196,
+          "sha256": "f283782a5a06efee05e33b866f4b69bf9b096f5a796da7546ff5af8aedcd111c"
+        },
+        {
+          "path": "archive/0.1.0/README.en.md",
+          "mode": "100644",
+          "git_blob": "2ea8312265ea7aaa41724fddf6011fb8c90b71dc",
+          "size": 11756,
+          "sha256": "101282be1e64ffc98554d9c77813aba91f81af941cade9526aaa171a104c82de"
+        },
+        {
+          "path": "archive/0.1.0/README.md",
+          "mode": "100644",
+          "git_blob": "147eee3daa3fb6b96c207a6e8839eabe04c8167b",
+          "size": 11564,
+          "sha256": "454eb6ac6e84a119ae0f53b6a67b83e4cbb3ac748fcf9fcfaa065cd7f22a3893"
+        },
+        {
+          "path": "archive/0.1.0/THIRD_PARTY_NOTICES.txt",
+          "mode": "100644",
+          "git_blob": "5463da38b9b96004de93fea251b82399d2dbc79d",
+          "size": 2081,
+          "sha256": "71435db5b43c8d5846a1897e1d7dc4e09bb225f4d94abe6a25f7cf6935b92470"
+        },
+        {
+          "path": "archive/0.1.0/dlssg_sm86.ini",
+          "mode": "100644",
+          "git_blob": "dc1cdeea47449a6e24096bd30eb0cbe68148f657",
+          "size": 1459,
+          "sha256": "77a698310818b90039b72c61331cb50e7fc6692eff220ca9eb14c494998c96b8"
+        },
+        {
+          "path": "archive/0.1.0/version.dll",
+          "mode": "100644",
+          "git_blob": "2fd84cc35dcab16fa7a58321d6b4e1b4141145c3",
+          "size": 10522624,
+          "sha256": "03d445237d519ac48cd9226278a0f07aecd7ac597697697eb64404e1d51b3c5a",
+          "proxy_version": "0.1.0"
+        },
+        {
+          "path": "archive/0.2.4/.DS_Store",
+          "mode": "100644",
+          "git_blob": "ce625eabc46f3d942a6222cba2dd9d83064f3001",
+          "size": 8196,
+          "sha256": "34f46b022d404f2ba136a1eb16b1e0ca1050147b1aa495fd90d0489da849f044"
+        },
+        {
+          "path": "archive/0.2.4/README.en.md",
+          "mode": "100644",
+          "git_blob": "cbe331afde28d6e51b448cdbe5d946d199612240",
+          "size": 15545,
+          "sha256": "d01d4828ca1cbd8bc1dc0d9df0d2ea4099ce63dfa6dbb2075573b354ff49feec"
+        },
+        {
+          "path": "archive/0.2.4/README.md",
+          "mode": "100644",
+          "git_blob": "c3444a0f22937949150799285d0bf5f3a39b96c3",
+          "size": 13831,
+          "sha256": "b052c66b4f6b0f3493a5c8f39272c0b1361abf44b58d4d1405fd37b7064a7403"
+        },
+        {
+          "path": "archive/0.2.4/THIRD_PARTY_NOTICES.txt",
+          "mode": "100644",
+          "git_blob": "3f68bae2ea9f9e6cabdd3cd2a739ffd4c2d29131",
+          "size": 2863,
+          "sha256": "689f743ccf99644abd2992e62e6562b00d0bc07ec508153d3a51f7270e5cc5ee"
+        },
+        {
+          "path": "archive/0.2.4/altnative/dinput8.dll",
+          "mode": "100644",
+          "git_blob": "a00546c88e01531943a6e7953283fffc0e5d3919",
+          "size": 15666496,
+          "sha256": "ef3c3d49c5b5c8a17289c24da9b22885570793d72f3db628fa500f9efdb20489",
+          "proxy_version": "0.2.4"
+        },
+        {
+          "path": "archive/0.2.4/altnative/dxgi.dll",
+          "mode": "100644",
+          "git_blob": "6291c9bd3929ca4c72291015c9fe8d20d8e715bd",
+          "size": 15668032,
+          "sha256": "8d29eddbd7f1c3e272d07f94ab8812a80ef5b7aeb73923320bf9a432ddcf74c0",
+          "proxy_version": "0.2.4"
+        },
+        {
+          "path": "archive/0.2.4/altnative/winhttp.dll",
+          "mode": "100644",
+          "git_blob": "bda9e642f3ffaf58b4dd9c630d7fc5d85e957112",
+          "size": 15674176,
+          "sha256": "1619839e4d1b6145ce9a587ba807f42e64f2b0984af9e81700d42ccf46ff7253",
+          "proxy_version": "0.2.4"
+        },
+        {
+          "path": "archive/0.2.4/altnative/winmm.dll",
+          "mode": "100644",
+          "git_blob": "7166b7feef012399e578a741ed54423665d85b74",
+          "size": 15678272,
+          "sha256": "1004dd4ee0edbe4e1af4c8c7b30d4786bea0f5e7c0412566996b4c2543ae7e36",
+          "proxy_version": "0.2.4"
+        },
+        {
+          "path": "archive/0.2.4/config/presets/sm86-default.ini",
+          "mode": "100644",
+          "git_blob": "f79dc0eee5f7267b1ecdf19dbee50074dcfc8f59",
+          "size": 208,
+          "sha256": "ddf1e36d952c9fe1626b3321957c49f2268a562fcc9e707de6a61d66be9be32e"
+        },
+        {
+          "path": "archive/0.2.4/config/presets/sm86-performance.ini",
+          "mode": "100644",
+          "git_blob": "cec805f86656c8685dd20b8552cde2456bc56d80",
+          "size": 269,
+          "sha256": "0a5cbc9940f699618c09d538f057f5598c0daab62cff58827e5644bbabcfec3a"
+        },
+        {
+          "path": "archive/0.2.4/dlssg_sm86.ini",
+          "mode": "100644",
+          "git_blob": "f68878e557c6be4babf678d16efabe93fd3492c0",
+          "size": 581,
+          "sha256": "fd7f0722194e6e8d8c085327d9826effb411925a69a5e7549d70eff26a9f18b5"
+        },
+        {
+          "path": "archive/0.2.4/docs/NATIVE_INI.md",
+          "mode": "100644",
+          "git_blob": "e3e35f5146cee7e44b7fa80925cc90ac8c74d12a",
+          "size": 3555,
+          "sha256": "3063fe6b4701c07c60ce32bc5a4552b7fa6e6c0c1bcf6238f178c0879037b805"
+        },
+        {
+          "path": "archive/0.2.4/docs/ROADMAP.md",
+          "mode": "100644",
+          "git_blob": "eb25218ba83274ba50f70085d7bc2f34e7db750a",
+          "size": 975,
+          "sha256": "18f13e89649ea1c8e76113ce3c338b0d280ecd67effb0b2ccb41a5fa8a86bb9d"
+        },
+        {
+          "path": "archive/0.2.4/version.dll",
+          "mode": "100644",
+          "git_blob": "50c04d7f4bf26e0419432cc2ae02588c4a303a23",
+          "size": 15667520,
+          "sha256": "c844646d835a7b88ed1382eea80403d38b433f8ac09cf92581c73698c44ae7c2",
+          "proxy_version": "0.2.4"
+        },
+        {
+          "path": "dlssg_sm86.ini",
+          "mode": "100644",
+          "git_blob": "0c0b29e8dc2d0ffa78a316c57fc795e7a9ddcb96",
+          "size": 2727,
+          "sha256": "231574047c4989d292e592802102d2437fc636b56e535e8d70d403f20d4ccafc"
+        },
+        {
+          "path": "docs/INSTALL.md",
+          "mode": "100644",
+          "git_blob": "36723e8d2dae887198b88bcb449965db5cd4dc50",
+          "size": 40907,
+          "sha256": "ce7cc83ad0e6d0351cac12afb474adf85ed9a48f98a0757cbc16b73ba4f0c00b"
+        },
+        {
+          "path": "version.dll",
+          "mode": "100644",
+          "git_blob": "63ee9bff9ea6105be67e99531a2fe5e5b4ae5bb1",
+          "size": 29676832,
+          "sha256": "3d4c7d537a6e71e3a9d41ffc6487e054b26c56d27b7c0825d39eaa7ef0c7e86d",
+          "proxy_version": "0.3.1"
+        }
+      ]
+    },
+    {
+      "tag": "0.3.2",
+      "tag_object": "126d0f768f2293dad6f0da9d3b8fd6961ed88bdc",
+      "commit": "126d0f768f2293dad6f0da9d3b8fd6961ed88bdc",
+      "files": [
+        {
+          "path": "310.1/.DS_Store",
+          "mode": "100644",
+          "git_blob": "11e9d80a6a5b1b94b2769c72ebf6b0e794cac940",
+          "size": 6148,
+          "sha256": "38155ef44ad7040a5b8a0127983acc1af8f2687f85e9eacc60b02df9e77b2df7"
+        },
+        {
+          "path": "310.1/alternatives/README.md",
+          "mode": "100644",
+          "git_blob": "347d7bd7e480cd890475a136eb577436b3e66ece",
+          "size": 2234,
+          "sha256": "2cbfaa5dc8b47c042c487534273714460eb259f00bbad49d06aa6941ce08dbfb"
+        },
+        {
+          "path": "310.1/alternatives/d3d12.dll",
+          "mode": "100644",
+          "git_blob": "eca45ed8fc2f9f55d4185b1ae959136bd3a95267",
+          "size": 27951904,
+          "sha256": "05a83f28c942148e75d11897cc9ea9f1f3a90613a3e0aac2eea0118a016fcc54",
+          "proxy_version": "0.3.2"
+        },
+        {
+          "path": "310.1/alternatives/dbghelp.dll",
+          "mode": "100644",
+          "git_blob": "2503c486b84453745e93893c71e4dc2b7a9bd2b5",
+          "size": 27969312,
+          "sha256": "d17643ae2aed871a646f92ff6613e0604dedab2dc4ec8c8f7f2294f1ec9f7013",
+          "proxy_version": "0.3.2"
+        },
+        {
+          "path": "310.1/alternatives/dinput8.dll",
+          "mode": "100644",
+          "git_blob": "bce1338b604535e0eee4cf225316a29e7e85460e",
+          "size": 27950368,
+          "sha256": "1893acb44f84185a21a5a92b6349a2227e39cefb6a901bae1025174b5c60261a",
+          "proxy_version": "0.3.2"
+        },
+        {
+          "path": "310.1/alternatives/dxgi.dll",
+          "mode": "100644",
+          "git_blob": "0925adf5a50211cba3bff01004ae512c0c695dd4",
+          "size": 27951904,
+          "sha256": "ecc28978ff578489ea88fbd9f1c18b566f8b5d5574003e947dfbfa66e177544c",
+          "proxy_version": "0.3.2"
+        },
+        {
+          "path": "310.1/alternatives/winmm.dll",
+          "mode": "100644",
+          "git_blob": "e02848eb2112798a951fbc1b5305b047b248e040",
+          "size": 27962656,
+          "sha256": "f20bff1fa5f9a9dc6b7a35ce16fc8c743a7a34a1a47c116283b682f2260b6107",
+          "proxy_version": "0.3.2"
+        },
+        {
+          "path": "310.1/version.dll",
+          "mode": "100644",
+          "git_blob": "0e3edd839daaf2dd8beb0002b8811b84b29cb693",
+          "size": 27951392,
+          "sha256": "a1f5e4c8c43238de5b639ef858fb67fbb1874e5e8681833bc3ffff4d3b573c50",
+          "proxy_version": "0.3.2"
+        },
+        {
+          "path": "README.en.md",
+          "mode": "100644",
+          "git_blob": "fa7fe17054edf953a24fadefb7e3819dd6c03005",
+          "size": 12610,
+          "sha256": "766339491a15caf54f01e0910a82e7ae95e40d16b05358d094e8b684f33da34c"
+        },
+        {
+          "path": "README.md",
+          "mode": "100644",
+          "git_blob": "209189edcddd63edbc627d835a1c08cd87ab977c",
+          "size": 11498,
+          "sha256": "0ca488f4fce5e0b74729fb5b37269c4fc3c814384e5f6082fbea673241330d48"
+        },
+        {
+          "path": "THIRD_PARTY_NOTICES.txt",
+          "mode": "100644",
+          "git_blob": "125de4126918c8d93774dd5f54dff29ed08dea30",
+          "size": 3349,
+          "sha256": "ac3b44ab30a4235edd18feca1ab4f802d57c8d3d0ee4878dc77b81a6b127155f"
+        },
+        {
+          "path": "alternatives/README.md",
+          "mode": "100644",
+          "git_blob": "347d7bd7e480cd890475a136eb577436b3e66ece",
+          "size": 2234,
+          "sha256": "2cbfaa5dc8b47c042c487534273714460eb259f00bbad49d06aa6941ce08dbfb"
+        },
+        {
+          "path": "alternatives/d3d12.dll",
+          "mode": "100644",
+          "git_blob": "4fbfa36f92b684b7c052a474f4131133a3cd2ce4",
+          "size": 29976352,
+          "sha256": "5b36c5d068b64f7413d75d30fcfa35539da26bd75452bab2a1340baf26da0fe8",
+          "proxy_version": "0.3.2"
+        },
+        {
+          "path": "alternatives/dbghelp.dll",
+          "mode": "100644",
+          "git_blob": "2f2c8c535742bc885578f3a1eb296a95a2e2ec81",
+          "size": 29993760,
+          "sha256": "67e04932c9e1d980d6431ec626f4db21b78a1375e95de6e7e9366f58f0cb9a65",
+          "proxy_version": "0.3.2"
+        },
+        {
+          "path": "alternatives/dinput8.dll",
+          "mode": "100644",
+          "git_blob": "3b2ae5b2928c44a3fb05e2b7b411ad3b6ed9fd31",
+          "size": 29974816,
+          "sha256": "6fe34c8c291fb5be21184076b14b52b6e01de88a263ae0d10f6daa68e0bb5d4e",
+          "proxy_version": "0.3.2"
+        },
+        {
+          "path": "alternatives/dxgi.dll",
+          "mode": "100644",
+          "git_blob": "7f27924892d1b5845a9adadfa1541e889433f9bb",
+          "size": 29976352,
+          "sha256": "988f1da4397779fd901924d793dba967d0ffa44bfaa8f9ab25b5c5641ab93ffc",
+          "proxy_version": "0.3.2"
+        },
+        {
+          "path": "alternatives/winmm.dll",
+          "mode": "100644",
+          "git_blob": "7200719bf670d39b70c53efe3361f0b28c2369f3",
+          "size": 29987104,
+          "sha256": "f36ced34bbcd28c09f70c0d6adad2e1f9b1659cda46a204cc01a38d1ae86da37",
+          "proxy_version": "0.3.2"
+        },
+        {
+          "path": "archive/.DS_Store",
+          "mode": "100644",
+          "git_blob": "0c3bd20e13916358a1d70a527c49f568e278112f",
+          "size": 8196,
+          "sha256": "f283782a5a06efee05e33b866f4b69bf9b096f5a796da7546ff5af8aedcd111c"
+        },
+        {
+          "path": "archive/0.1.0/README.en.md",
+          "mode": "100644",
+          "git_blob": "2ea8312265ea7aaa41724fddf6011fb8c90b71dc",
+          "size": 11756,
+          "sha256": "101282be1e64ffc98554d9c77813aba91f81af941cade9526aaa171a104c82de"
+        },
+        {
+          "path": "archive/0.1.0/README.md",
+          "mode": "100644",
+          "git_blob": "147eee3daa3fb6b96c207a6e8839eabe04c8167b",
+          "size": 11564,
+          "sha256": "454eb6ac6e84a119ae0f53b6a67b83e4cbb3ac748fcf9fcfaa065cd7f22a3893"
+        },
+        {
+          "path": "archive/0.1.0/THIRD_PARTY_NOTICES.txt",
+          "mode": "100644",
+          "git_blob": "5463da38b9b96004de93fea251b82399d2dbc79d",
+          "size": 2081,
+          "sha256": "71435db5b43c8d5846a1897e1d7dc4e09bb225f4d94abe6a25f7cf6935b92470"
+        },
+        {
+          "path": "archive/0.1.0/dlssg_sm86.ini",
+          "mode": "100644",
+          "git_blob": "dc1cdeea47449a6e24096bd30eb0cbe68148f657",
+          "size": 1459,
+          "sha256": "77a698310818b90039b72c61331cb50e7fc6692eff220ca9eb14c494998c96b8"
+        },
+        {
+          "path": "archive/0.1.0/version.dll",
+          "mode": "100644",
+          "git_blob": "2fd84cc35dcab16fa7a58321d6b4e1b4141145c3",
+          "size": 10522624,
+          "sha256": "03d445237d519ac48cd9226278a0f07aecd7ac597697697eb64404e1d51b3c5a",
+          "proxy_version": "0.1.0"
+        },
+        {
+          "path": "archive/0.2.4/.DS_Store",
+          "mode": "100644",
+          "git_blob": "ce625eabc46f3d942a6222cba2dd9d83064f3001",
+          "size": 8196,
+          "sha256": "34f46b022d404f2ba136a1eb16b1e0ca1050147b1aa495fd90d0489da849f044"
+        },
+        {
+          "path": "archive/0.2.4/README.en.md",
+          "mode": "100644",
+          "git_blob": "cbe331afde28d6e51b448cdbe5d946d199612240",
+          "size": 15545,
+          "sha256": "d01d4828ca1cbd8bc1dc0d9df0d2ea4099ce63dfa6dbb2075573b354ff49feec"
+        },
+        {
+          "path": "archive/0.2.4/README.md",
+          "mode": "100644",
+          "git_blob": "c3444a0f22937949150799285d0bf5f3a39b96c3",
+          "size": 13831,
+          "sha256": "b052c66b4f6b0f3493a5c8f39272c0b1361abf44b58d4d1405fd37b7064a7403"
+        },
+        {
+          "path": "archive/0.2.4/THIRD_PARTY_NOTICES.txt",
+          "mode": "100644",
+          "git_blob": "3f68bae2ea9f9e6cabdd3cd2a739ffd4c2d29131",
+          "size": 2863,
+          "sha256": "689f743ccf99644abd2992e62e6562b00d0bc07ec508153d3a51f7270e5cc5ee"
+        },
+        {
+          "path": "archive/0.2.4/altnative/dinput8.dll",
+          "mode": "100644",
+          "git_blob": "a00546c88e01531943a6e7953283fffc0e5d3919",
+          "size": 15666496,
+          "sha256": "ef3c3d49c5b5c8a17289c24da9b22885570793d72f3db628fa500f9efdb20489",
+          "proxy_version": "0.2.4"
+        },
+        {
+          "path": "archive/0.2.4/altnative/dxgi.dll",
+          "mode": "100644",
+          "git_blob": "6291c9bd3929ca4c72291015c9fe8d20d8e715bd",
+          "size": 15668032,
+          "sha256": "8d29eddbd7f1c3e272d07f94ab8812a80ef5b7aeb73923320bf9a432ddcf74c0",
+          "proxy_version": "0.2.4"
+        },
+        {
+          "path": "archive/0.2.4/altnative/winhttp.dll",
+          "mode": "100644",
+          "git_blob": "bda9e642f3ffaf58b4dd9c630d7fc5d85e957112",
+          "size": 15674176,
+          "sha256": "1619839e4d1b6145ce9a587ba807f42e64f2b0984af9e81700d42ccf46ff7253",
+          "proxy_version": "0.2.4"
+        },
+        {
+          "path": "archive/0.2.4/altnative/winmm.dll",
+          "mode": "100644",
+          "git_blob": "7166b7feef012399e578a741ed54423665d85b74",
+          "size": 15678272,
+          "sha256": "1004dd4ee0edbe4e1af4c8c7b30d4786bea0f5e7c0412566996b4c2543ae7e36",
+          "proxy_version": "0.2.4"
+        },
+        {
+          "path": "archive/0.2.4/config/presets/sm86-default.ini",
+          "mode": "100644",
+          "git_blob": "f79dc0eee5f7267b1ecdf19dbee50074dcfc8f59",
+          "size": 208,
+          "sha256": "ddf1e36d952c9fe1626b3321957c49f2268a562fcc9e707de6a61d66be9be32e"
+        },
+        {
+          "path": "archive/0.2.4/config/presets/sm86-performance.ini",
+          "mode": "100644",
+          "git_blob": "cec805f86656c8685dd20b8552cde2456bc56d80",
+          "size": 269,
+          "sha256": "0a5cbc9940f699618c09d538f057f5598c0daab62cff58827e5644bbabcfec3a"
+        },
+        {
+          "path": "archive/0.2.4/dlssg_sm86.ini",
+          "mode": "100644",
+          "git_blob": "f68878e557c6be4babf678d16efabe93fd3492c0",
+          "size": 581,
+          "sha256": "fd7f0722194e6e8d8c085327d9826effb411925a69a5e7549d70eff26a9f18b5"
+        },
+        {
+          "path": "archive/0.2.4/docs/NATIVE_INI.md",
+          "mode": "100644",
+          "git_blob": "e3e35f5146cee7e44b7fa80925cc90ac8c74d12a",
+          "size": 3555,
+          "sha256": "3063fe6b4701c07c60ce32bc5a4552b7fa6e6c0c1bcf6238f178c0879037b805"
+        },
+        {
+          "path": "archive/0.2.4/docs/ROADMAP.md",
+          "mode": "100644",
+          "git_blob": "eb25218ba83274ba50f70085d7bc2f34e7db750a",
+          "size": 975,
+          "sha256": "18f13e89649ea1c8e76113ce3c338b0d280ecd67effb0b2ccb41a5fa8a86bb9d"
+        },
+        {
+          "path": "archive/0.2.4/version.dll",
+          "mode": "100644",
+          "git_blob": "50c04d7f4bf26e0419432cc2ae02588c4a303a23",
+          "size": 15667520,
+          "sha256": "c844646d835a7b88ed1382eea80403d38b433f8ac09cf92581c73698c44ae7c2",
+          "proxy_version": "0.2.4"
+        },
+        {
+          "path": "dlssg_sm86.ini",
+          "mode": "100644",
+          "git_blob": "2c97d64f2239b7d511f7d0a36c16e149dd3329f6",
+          "size": 3548,
+          "sha256": "2616857ee29ec61e33c8b52e1b50f4c93cb5339adbb13b73f0ae71a722427a43"
+        },
+        {
+          "path": "docs/INSTALL.en.md",
+          "mode": "100644",
+          "git_blob": "681a96918256b1d5ccf18f9fe26c5bc52961f229",
+          "size": 51601,
+          "sha256": "7ab1a8761e99ab15a1d05e37b04a498aeb02e9060a74a7beb299436289a95e92"
+        },
+        {
+          "path": "docs/INSTALL.md",
+          "mode": "100644",
+          "git_blob": "c8903f0ff05fdb9a07345e3040082577af67effd",
+          "size": 45277,
+          "sha256": "22afb423047e503bd5d8f08006d9d02a582bafae81977de737f1b350df3392e3"
+        },
+        {
+          "path": "version.dll",
+          "mode": "100644",
+          "git_blob": "100e76f9c1c754cba16ba0e40f1d9b70e9887bcf",
+          "size": 29975840,
+          "sha256": "39b16f2cdb16450f0edc0e0b14231951e10954131ad9aa12037700e18dc91040",
+          "proxy_version": "0.3.2"
+        }
+      ]
+    },
+    {
+      "tag": "0.3.3",
+      "tag_object": "5e79459c2d521f8c3276ce9ee02342c0e2686982",
+      "commit": "5e79459c2d521f8c3276ce9ee02342c0e2686982",
+      "files": [
+        {
+          "path": "310.1/.DS_Store",
+          "mode": "100644",
+          "git_blob": "11e9d80a6a5b1b94b2769c72ebf6b0e794cac940",
+          "size": 6148,
+          "sha256": "38155ef44ad7040a5b8a0127983acc1af8f2687f85e9eacc60b02df9e77b2df7"
+        },
+        {
+          "path": "310.1/alternatives/README.md",
+          "mode": "100644",
+          "git_blob": "347d7bd7e480cd890475a136eb577436b3e66ece",
+          "size": 2234,
+          "sha256": "2cbfaa5dc8b47c042c487534273714460eb259f00bbad49d06aa6941ce08dbfb"
+        },
+        {
+          "path": "310.1/alternatives/d3d12.dll",
+          "mode": "100644",
+          "git_blob": "4368558519d2238cb05c21c2050bc803000699dc",
+          "size": 27971872,
+          "sha256": "f7b20a264c0e6617b39e8ea47ce3f1a16583c150e592cf7472cb57b08a99253f",
+          "proxy_version": "0.3.3"
+        },
+        {
+          "path": "310.1/alternatives/dbghelp.dll",
+          "mode": "100644",
+          "git_blob": "5032c54493efb3552e7bffd39cecf5d0a75230b4",
+          "size": 27989280,
+          "sha256": "5e330119fc270d6e3ecdb97bb30b69d2d626051f69df43ea23269fba1e5e185d",
+          "proxy_version": "0.3.3"
+        },
+        {
+          "path": "310.1/alternatives/dinput8.dll",
+          "mode": "100644",
+          "git_blob": "61363743036e19af3e6c4ff2d81dbc41215a80c8",
+          "size": 27970848,
+          "sha256": "ff51c312e53988db66ada8ea0f136190b33b9f4ac4e3d9782d31655f87eb17d3",
+          "proxy_version": "0.3.3"
+        },
+        {
+          "path": "310.1/alternatives/dxgi.dll",
+          "mode": "100644",
+          "git_blob": "5653882876180f56598681f058af71d4a4a59eec",
+          "size": 27971872,
+          "sha256": "d915b6094b35d54970ccf95f77bf2d6b3f8549b09d94e3e49441d7e528e57538",
+          "proxy_version": "0.3.3"
+        },
+        {
+          "path": "310.1/alternatives/winmm.dll",
+          "mode": "100644",
+          "git_blob": "b03849e3d85861d476649bc4ad45ac693ef9c589",
+          "size": 27983136,
+          "sha256": "ed0d84dc8ac80c0f9e1bcdef7001ebbb4b74e25c3cad0e02699fe56f714b8d1c",
+          "proxy_version": "0.3.3"
+        },
+        {
+          "path": "310.1/version.dll",
+          "mode": "100644",
+          "git_blob": "30e437680f8f71e0bd5222f2198ca1c45b61e1f9",
+          "size": 27971360,
+          "sha256": "ae762a9f948ee26b220201285db68c21b81d8ebe33b51a8506d10e1a5e243b88",
+          "proxy_version": "0.3.3"
+        },
+        {
+          "path": "README.en.md",
+          "mode": "100644",
+          "git_blob": "2da8a09f3962bb53fa7be99363ed873f8b5cc11c",
+          "size": 13599,
+          "sha256": "352cc4db0362b67c9d7546d2835b8c3ad9fa0871d973ca81a191aa88b848af7a"
+        },
+        {
+          "path": "README.md",
+          "mode": "100644",
+          "git_blob": "e3f34c8edce17760ffee2367ae293ea99cce980f",
+          "size": 12370,
+          "sha256": "5eb405eb105f194df9f60235a7a79f8fb71cd58a10c809085b5a70e4a445ba99"
+        },
+        {
+          "path": "THIRD_PARTY_NOTICES.txt",
+          "mode": "100644",
+          "git_blob": "125de4126918c8d93774dd5f54dff29ed08dea30",
+          "size": 3349,
+          "sha256": "ac3b44ab30a4235edd18feca1ab4f802d57c8d3d0ee4878dc77b81a6b127155f"
+        },
+        {
+          "path": "alternatives/README.md",
+          "mode": "100644",
+          "git_blob": "347d7bd7e480cd890475a136eb577436b3e66ece",
+          "size": 2234,
+          "sha256": "2cbfaa5dc8b47c042c487534273714460eb259f00bbad49d06aa6941ce08dbfb"
+        },
+        {
+          "path": "alternatives/d3d12.dll",
+          "mode": "100644",
+          "git_blob": "1e21263b19c83506d38a0250cdc88f2546d9f21f",
+          "size": 29996832,
+          "sha256": "7aa131e206f996fe18867e78c700dc1cf9a077b1a3a5430fd7e8fbabecedb437",
+          "proxy_version": "0.3.3"
+        },
+        {
+          "path": "alternatives/dbghelp.dll",
+          "mode": "100644",
+          "git_blob": "16114a1f49c4b1bb1c8a91eaa939879909f4fdb0",
+          "size": 30014240,
+          "sha256": "880e00cfd631cbd65e4d6490bfd25b894a5b6f40ba460b59b725edbc6e219e5d",
+          "proxy_version": "0.3.3"
+        },
+        {
+          "path": "alternatives/dinput8.dll",
+          "mode": "100644",
+          "git_blob": "05d614b06028bd094e3afe84b78836ae080b29ca",
+          "size": 29995808,
+          "sha256": "46742058b45e851d4b371fb84fa160ef3eff9677d50b839ec5aa28adf868abab",
+          "proxy_version": "0.3.3"
+        },
+        {
+          "path": "alternatives/dxgi.dll",
+          "mode": "100644",
+          "git_blob": "9421558ec34e766c0d3a60a3d09d000b4180238b",
+          "size": 29996832,
+          "sha256": "ebc3eb630eb9e20be615d3c3bee4b99d18dcfea90f08d63ef3295a36e5f444f3",
+          "proxy_version": "0.3.3"
+        },
+        {
+          "path": "alternatives/winmm.dll",
+          "mode": "100644",
+          "git_blob": "ee33d040c36555432d4e2fd0ecb80cc5f9407d65",
+          "size": 30008096,
+          "sha256": "ed8d901000eb509c4d552bfbe0f66f2ee78c65226f703df9d8bf4b1bdb2726cd",
+          "proxy_version": "0.3.3"
+        },
+        {
+          "path": "archive/.DS_Store",
+          "mode": "100644",
+          "git_blob": "0c3bd20e13916358a1d70a527c49f568e278112f",
+          "size": 8196,
+          "sha256": "f283782a5a06efee05e33b866f4b69bf9b096f5a796da7546ff5af8aedcd111c"
+        },
+        {
+          "path": "archive/0.1.0/README.en.md",
+          "mode": "100644",
+          "git_blob": "2ea8312265ea7aaa41724fddf6011fb8c90b71dc",
+          "size": 11756,
+          "sha256": "101282be1e64ffc98554d9c77813aba91f81af941cade9526aaa171a104c82de"
+        },
+        {
+          "path": "archive/0.1.0/README.md",
+          "mode": "100644",
+          "git_blob": "147eee3daa3fb6b96c207a6e8839eabe04c8167b",
+          "size": 11564,
+          "sha256": "454eb6ac6e84a119ae0f53b6a67b83e4cbb3ac748fcf9fcfaa065cd7f22a3893"
+        },
+        {
+          "path": "archive/0.1.0/THIRD_PARTY_NOTICES.txt",
+          "mode": "100644",
+          "git_blob": "5463da38b9b96004de93fea251b82399d2dbc79d",
+          "size": 2081,
+          "sha256": "71435db5b43c8d5846a1897e1d7dc4e09bb225f4d94abe6a25f7cf6935b92470"
+        },
+        {
+          "path": "archive/0.1.0/dlssg_sm86.ini",
+          "mode": "100644",
+          "git_blob": "dc1cdeea47449a6e24096bd30eb0cbe68148f657",
+          "size": 1459,
+          "sha256": "77a698310818b90039b72c61331cb50e7fc6692eff220ca9eb14c494998c96b8"
+        },
+        {
+          "path": "archive/0.1.0/version.dll",
+          "mode": "100644",
+          "git_blob": "2fd84cc35dcab16fa7a58321d6b4e1b4141145c3",
+          "size": 10522624,
+          "sha256": "03d445237d519ac48cd9226278a0f07aecd7ac597697697eb64404e1d51b3c5a",
+          "proxy_version": "0.1.0"
+        },
+        {
+          "path": "archive/0.2.4/.DS_Store",
+          "mode": "100644",
+          "git_blob": "ce625eabc46f3d942a6222cba2dd9d83064f3001",
+          "size": 8196,
+          "sha256": "34f46b022d404f2ba136a1eb16b1e0ca1050147b1aa495fd90d0489da849f044"
+        },
+        {
+          "path": "archive/0.2.4/README.en.md",
+          "mode": "100644",
+          "git_blob": "cbe331afde28d6e51b448cdbe5d946d199612240",
+          "size": 15545,
+          "sha256": "d01d4828ca1cbd8bc1dc0d9df0d2ea4099ce63dfa6dbb2075573b354ff49feec"
+        },
+        {
+          "path": "archive/0.2.4/README.md",
+          "mode": "100644",
+          "git_blob": "c3444a0f22937949150799285d0bf5f3a39b96c3",
+          "size": 13831,
+          "sha256": "b052c66b4f6b0f3493a5c8f39272c0b1361abf44b58d4d1405fd37b7064a7403"
+        },
+        {
+          "path": "archive/0.2.4/THIRD_PARTY_NOTICES.txt",
+          "mode": "100644",
+          "git_blob": "3f68bae2ea9f9e6cabdd3cd2a739ffd4c2d29131",
+          "size": 2863,
+          "sha256": "689f743ccf99644abd2992e62e6562b00d0bc07ec508153d3a51f7270e5cc5ee"
+        },
+        {
+          "path": "archive/0.2.4/altnative/dinput8.dll",
+          "mode": "100644",
+          "git_blob": "a00546c88e01531943a6e7953283fffc0e5d3919",
+          "size": 15666496,
+          "sha256": "ef3c3d49c5b5c8a17289c24da9b22885570793d72f3db628fa500f9efdb20489",
+          "proxy_version": "0.2.4"
+        },
+        {
+          "path": "archive/0.2.4/altnative/dxgi.dll",
+          "mode": "100644",
+          "git_blob": "6291c9bd3929ca4c72291015c9fe8d20d8e715bd",
+          "size": 15668032,
+          "sha256": "8d29eddbd7f1c3e272d07f94ab8812a80ef5b7aeb73923320bf9a432ddcf74c0",
+          "proxy_version": "0.2.4"
+        },
+        {
+          "path": "archive/0.2.4/altnative/winhttp.dll",
+          "mode": "100644",
+          "git_blob": "bda9e642f3ffaf58b4dd9c630d7fc5d85e957112",
+          "size": 15674176,
+          "sha256": "1619839e4d1b6145ce9a587ba807f42e64f2b0984af9e81700d42ccf46ff7253",
+          "proxy_version": "0.2.4"
+        },
+        {
+          "path": "archive/0.2.4/altnative/winmm.dll",
+          "mode": "100644",
+          "git_blob": "7166b7feef012399e578a741ed54423665d85b74",
+          "size": 15678272,
+          "sha256": "1004dd4ee0edbe4e1af4c8c7b30d4786bea0f5e7c0412566996b4c2543ae7e36",
+          "proxy_version": "0.2.4"
+        },
+        {
+          "path": "archive/0.2.4/config/presets/sm86-default.ini",
+          "mode": "100644",
+          "git_blob": "f79dc0eee5f7267b1ecdf19dbee50074dcfc8f59",
+          "size": 208,
+          "sha256": "ddf1e36d952c9fe1626b3321957c49f2268a562fcc9e707de6a61d66be9be32e"
+        },
+        {
+          "path": "archive/0.2.4/config/presets/sm86-performance.ini",
+          "mode": "100644",
+          "git_blob": "cec805f86656c8685dd20b8552cde2456bc56d80",
+          "size": 269,
+          "sha256": "0a5cbc9940f699618c09d538f057f5598c0daab62cff58827e5644bbabcfec3a"
+        },
+        {
+          "path": "archive/0.2.4/dlssg_sm86.ini",
+          "mode": "100644",
+          "git_blob": "f68878e557c6be4babf678d16efabe93fd3492c0",
+          "size": 581,
+          "sha256": "fd7f0722194e6e8d8c085327d9826effb411925a69a5e7549d70eff26a9f18b5"
+        },
+        {
+          "path": "archive/0.2.4/docs/NATIVE_INI.md",
+          "mode": "100644",
+          "git_blob": "e3e35f5146cee7e44b7fa80925cc90ac8c74d12a",
+          "size": 3555,
+          "sha256": "3063fe6b4701c07c60ce32bc5a4552b7fa6e6c0c1bcf6238f178c0879037b805"
+        },
+        {
+          "path": "archive/0.2.4/docs/ROADMAP.md",
+          "mode": "100644",
+          "git_blob": "eb25218ba83274ba50f70085d7bc2f34e7db750a",
+          "size": 975,
+          "sha256": "18f13e89649ea1c8e76113ce3c338b0d280ecd67effb0b2ccb41a5fa8a86bb9d"
+        },
+        {
+          "path": "archive/0.2.4/version.dll",
+          "mode": "100644",
+          "git_blob": "50c04d7f4bf26e0419432cc2ae02588c4a303a23",
+          "size": 15667520,
+          "sha256": "c844646d835a7b88ed1382eea80403d38b433f8ac09cf92581c73698c44ae7c2",
+          "proxy_version": "0.2.4"
+        },
+        {
+          "path": "dlssg_sm86.ini",
+          "mode": "100644",
+          "git_blob": "2c97d64f2239b7d511f7d0a36c16e149dd3329f6",
+          "size": 3548,
+          "sha256": "2616857ee29ec61e33c8b52e1b50f4c93cb5339adbb13b73f0ae71a722427a43"
+        },
+        {
+          "path": "docs/INSTALL.en.md",
+          "mode": "100644",
+          "git_blob": "871eaa03305ef27eaafbdcee473aedb5eabd31f1",
+          "size": 53413,
+          "sha256": "d00fb7657085324021883f0f231013ad375e5b7577afd86362b5576ca065eb47"
+        },
+        {
+          "path": "docs/INSTALL.md",
+          "mode": "100644",
+          "git_blob": "a3a38bcacb3ae57ad2d9a1703d8d355f23ab0464",
+          "size": 47099,
+          "sha256": "dc9465c0a240898b13acd880c0b7ff511020a3c9658d72c3f06e95633aa19141"
+        },
+        {
+          "path": "version.dll",
+          "mode": "100644",
+          "git_blob": "2725c48d214d68c6b5fa31a1893255225ead6c24",
+          "size": 29996320,
+          "sha256": "3b9ee60894766f2ea810f7aae171b163b923cff7ead71ef7d4eda624470c4642",
+          "proxy_version": "0.3.3"
+        }
+      ]
+    },
+    {
+      "tag": "0.3.4",
+      "tag_object": "196fcb61ef414992a6bef2d237ff609aab09f0d9",
+      "commit": "196fcb61ef414992a6bef2d237ff609aab09f0d9",
+      "files": [
+        {
+          "path": "310.1/.DS_Store",
+          "mode": "100644",
+          "git_blob": "11e9d80a6a5b1b94b2769c72ebf6b0e794cac940",
+          "size": 6148,
+          "sha256": "38155ef44ad7040a5b8a0127983acc1af8f2687f85e9eacc60b02df9e77b2df7"
+        },
+        {
+          "path": "310.1/alternatives/README.md",
+          "mode": "100644",
+          "git_blob": "347d7bd7e480cd890475a136eb577436b3e66ece",
+          "size": 2234,
+          "sha256": "2cbfaa5dc8b47c042c487534273714460eb259f00bbad49d06aa6941ce08dbfb"
+        },
+        {
+          "path": "310.1/alternatives/d3d12.dll",
+          "mode": "100644",
+          "git_blob": "323ddf4bd0251e02125cb35c4be6b1e6b9d67ccb",
+          "size": 27986208,
+          "sha256": "081b0fe43db0e8f2caa1c3457538f972859e9e5fca61461363d4f78d28861d26",
+          "proxy_version": "0.3.4"
+        },
+        {
+          "path": "310.1/alternatives/dbghelp.dll",
+          "mode": "100644",
+          "git_blob": "5d77dbf53843f802d07a3e6bb18ed5a9a5a8ac6e",
+          "size": 28004128,
+          "sha256": "29e7ede3d1d6a27dff0795d5fb084874052f8df79534a722ad97e98da6dc36d8",
+          "proxy_version": "0.3.4"
+        },
+        {
+          "path": "310.1/alternatives/dinput8.dll",
+          "mode": "100644",
+          "git_blob": "4881ab6cd971162016e1058e72b9114266440075",
+          "size": 27985696,
+          "sha256": "7f18c06d48f9a0836eac23105627aaa1b799ae0bd7a45c4d84c87032e5e994eb",
+          "proxy_version": "0.3.4"
+        },
+        {
+          "path": "310.1/alternatives/dxgi.dll",
+          "mode": "100644",
+          "git_blob": "455f8713be3959795a4a63057b064f20b5b361fa",
+          "size": 27986208,
+          "sha256": "44754245d1e27675004fcd1a6b297b999377c65db0004c31bc617edb7a7aa5dd",
+          "proxy_version": "0.3.4"
+        },
+        {
+          "path": "310.1/alternatives/winmm.dll",
+          "mode": "100644",
+          "git_blob": "9ddcc556c50ba256339d210719ef60f99a0c60ef",
+          "size": 27997472,
+          "sha256": "8738dd6028db37a8269bbc7b71a1616abd352bb46c60de805b201883dad0d05e",
+          "proxy_version": "0.3.4"
+        },
+        {
+          "path": "310.1/version.dll",
+          "mode": "100644",
+          "git_blob": "4ab0190af8d4063f76c2a1c6ef4b55f12e772bf1",
+          "size": 27986208,
+          "sha256": "a4d04765f9e679aa91bfc9784253b7bd8d0ada828de7ed36e322ce714988de47",
+          "proxy_version": "0.3.4"
+        },
+        {
+          "path": "README.en.md",
+          "mode": "100644",
+          "git_blob": "539887f97db5fbd75af111082ed817fbcd0d3d4a",
+          "size": 14161,
+          "sha256": "774217ca773bb1c39472b827af6624b2e1e887b28ab9436e38c3fb98bac772b0"
+        },
+        {
+          "path": "README.md",
+          "mode": "100644",
+          "git_blob": "d0192926df216e40a50659e38cbe97d258bfb42a",
+          "size": 12912,
+          "sha256": "4da06f4af94a4454a8eb4a5ed08a54c561ac9a57f398643a3e36017af1d5eece"
+        },
+        {
+          "path": "THIRD_PARTY_NOTICES.txt",
+          "mode": "100644",
+          "git_blob": "125de4126918c8d93774dd5f54dff29ed08dea30",
+          "size": 3349,
+          "sha256": "ac3b44ab30a4235edd18feca1ab4f802d57c8d3d0ee4878dc77b81a6b127155f"
+        },
+        {
+          "path": "alternatives/README.md",
+          "mode": "100644",
+          "git_blob": "347d7bd7e480cd890475a136eb577436b3e66ece",
+          "size": 2234,
+          "sha256": "2cbfaa5dc8b47c042c487534273714460eb259f00bbad49d06aa6941ce08dbfb"
+        },
+        {
+          "path": "alternatives/d3d12.dll",
+          "mode": "100644",
+          "git_blob": "52eab764b0838ca5ee33e25b622b9c99658f9a1a",
+          "size": 30011168,
+          "sha256": "517f70f46d6b2354514fb5461c53c0db9b9ef0dae46d16c05b92d2fc843514db",
+          "proxy_version": "0.3.4"
+        },
+        {
+          "path": "alternatives/dbghelp.dll",
+          "mode": "100644",
+          "git_blob": "db180622a80140e79db444df27168071a8bc2f70",
+          "size": 30029088,
+          "sha256": "50e1c50cb45a5512bcead3ea22da560776db67f7ab8f7fe9c583b4ecee7b7a41",
+          "proxy_version": "0.3.4"
+        },
+        {
+          "path": "alternatives/dinput8.dll",
+          "mode": "100644",
+          "git_blob": "476b50dfd5dc0998f91c7675940fd3dbd153464e",
+          "size": 30010656,
+          "sha256": "ccc0fc43f9ac1a622f37c71ea480dd75641cb6426af8023ed344a89189af5c8c",
+          "proxy_version": "0.3.4"
+        },
+        {
+          "path": "alternatives/dxgi.dll",
+          "mode": "100644",
+          "git_blob": "829814b3c52ddd3256341c6585a16a5060a62b45",
+          "size": 30011168,
+          "sha256": "af12e17d4fc22d94fa84f7fe9f306c43ebfd9dcb7cbeb41d01a018138586a922",
+          "proxy_version": "0.3.4"
+        },
+        {
+          "path": "alternatives/winmm.dll",
+          "mode": "100644",
+          "git_blob": "a78adf15841ead7955e01d00a37c2eda6594fc9b",
+          "size": 30022432,
+          "sha256": "84bfa1c4a68711439a92400cce5f80ce0ba3378caefb17b85e388a0fb60bc53c",
+          "proxy_version": "0.3.4"
+        },
+        {
+          "path": "archive/.DS_Store",
+          "mode": "100644",
+          "git_blob": "0c3bd20e13916358a1d70a527c49f568e278112f",
+          "size": 8196,
+          "sha256": "f283782a5a06efee05e33b866f4b69bf9b096f5a796da7546ff5af8aedcd111c"
+        },
+        {
+          "path": "archive/0.1.0/README.en.md",
+          "mode": "100644",
+          "git_blob": "2ea8312265ea7aaa41724fddf6011fb8c90b71dc",
+          "size": 11756,
+          "sha256": "101282be1e64ffc98554d9c77813aba91f81af941cade9526aaa171a104c82de"
+        },
+        {
+          "path": "archive/0.1.0/README.md",
+          "mode": "100644",
+          "git_blob": "147eee3daa3fb6b96c207a6e8839eabe04c8167b",
+          "size": 11564,
+          "sha256": "454eb6ac6e84a119ae0f53b6a67b83e4cbb3ac748fcf9fcfaa065cd7f22a3893"
+        },
+        {
+          "path": "archive/0.1.0/THIRD_PARTY_NOTICES.txt",
+          "mode": "100644",
+          "git_blob": "5463da38b9b96004de93fea251b82399d2dbc79d",
+          "size": 2081,
+          "sha256": "71435db5b43c8d5846a1897e1d7dc4e09bb225f4d94abe6a25f7cf6935b92470"
+        },
+        {
+          "path": "archive/0.1.0/dlssg_sm86.ini",
+          "mode": "100644",
+          "git_blob": "dc1cdeea47449a6e24096bd30eb0cbe68148f657",
+          "size": 1459,
+          "sha256": "77a698310818b90039b72c61331cb50e7fc6692eff220ca9eb14c494998c96b8"
+        },
+        {
+          "path": "archive/0.1.0/version.dll",
+          "mode": "100644",
+          "git_blob": "2fd84cc35dcab16fa7a58321d6b4e1b4141145c3",
+          "size": 10522624,
+          "sha256": "03d445237d519ac48cd9226278a0f07aecd7ac597697697eb64404e1d51b3c5a",
+          "proxy_version": "0.1.0"
+        },
+        {
+          "path": "archive/0.2.4/.DS_Store",
+          "mode": "100644",
+          "git_blob": "ce625eabc46f3d942a6222cba2dd9d83064f3001",
+          "size": 8196,
+          "sha256": "34f46b022d404f2ba136a1eb16b1e0ca1050147b1aa495fd90d0489da849f044"
+        },
+        {
+          "path": "archive/0.2.4/README.en.md",
+          "mode": "100644",
+          "git_blob": "cbe331afde28d6e51b448cdbe5d946d199612240",
+          "size": 15545,
+          "sha256": "d01d4828ca1cbd8bc1dc0d9df0d2ea4099ce63dfa6dbb2075573b354ff49feec"
+        },
+        {
+          "path": "archive/0.2.4/README.md",
+          "mode": "100644",
+          "git_blob": "c3444a0f22937949150799285d0bf5f3a39b96c3",
+          "size": 13831,
+          "sha256": "b052c66b4f6b0f3493a5c8f39272c0b1361abf44b58d4d1405fd37b7064a7403"
+        },
+        {
+          "path": "archive/0.2.4/THIRD_PARTY_NOTICES.txt",
+          "mode": "100644",
+          "git_blob": "3f68bae2ea9f9e6cabdd3cd2a739ffd4c2d29131",
+          "size": 2863,
+          "sha256": "689f743ccf99644abd2992e62e6562b00d0bc07ec508153d3a51f7270e5cc5ee"
+        },
+        {
+          "path": "archive/0.2.4/altnative/dinput8.dll",
+          "mode": "100644",
+          "git_blob": "a00546c88e01531943a6e7953283fffc0e5d3919",
+          "size": 15666496,
+          "sha256": "ef3c3d49c5b5c8a17289c24da9b22885570793d72f3db628fa500f9efdb20489",
+          "proxy_version": "0.2.4"
+        },
+        {
+          "path": "archive/0.2.4/altnative/dxgi.dll",
+          "mode": "100644",
+          "git_blob": "6291c9bd3929ca4c72291015c9fe8d20d8e715bd",
+          "size": 15668032,
+          "sha256": "8d29eddbd7f1c3e272d07f94ab8812a80ef5b7aeb73923320bf9a432ddcf74c0",
+          "proxy_version": "0.2.4"
+        },
+        {
+          "path": "archive/0.2.4/altnative/winhttp.dll",
+          "mode": "100644",
+          "git_blob": "bda9e642f3ffaf58b4dd9c630d7fc5d85e957112",
+          "size": 15674176,
+          "sha256": "1619839e4d1b6145ce9a587ba807f42e64f2b0984af9e81700d42ccf46ff7253",
+          "proxy_version": "0.2.4"
+        },
+        {
+          "path": "archive/0.2.4/altnative/winmm.dll",
+          "mode": "100644",
+          "git_blob": "7166b7feef012399e578a741ed54423665d85b74",
+          "size": 15678272,
+          "sha256": "1004dd4ee0edbe4e1af4c8c7b30d4786bea0f5e7c0412566996b4c2543ae7e36",
+          "proxy_version": "0.2.4"
+        },
+        {
+          "path": "archive/0.2.4/config/presets/sm86-default.ini",
+          "mode": "100644",
+          "git_blob": "f79dc0eee5f7267b1ecdf19dbee50074dcfc8f59",
+          "size": 208,
+          "sha256": "ddf1e36d952c9fe1626b3321957c49f2268a562fcc9e707de6a61d66be9be32e"
+        },
+        {
+          "path": "archive/0.2.4/config/presets/sm86-performance.ini",
+          "mode": "100644",
+          "git_blob": "cec805f86656c8685dd20b8552cde2456bc56d80",
+          "size": 269,
+          "sha256": "0a5cbc9940f699618c09d538f057f5598c0daab62cff58827e5644bbabcfec3a"
+        },
+        {
+          "path": "archive/0.2.4/dlssg_sm86.ini",
+          "mode": "100644",
+          "git_blob": "f68878e557c6be4babf678d16efabe93fd3492c0",
+          "size": 581,
+          "sha256": "fd7f0722194e6e8d8c085327d9826effb411925a69a5e7549d70eff26a9f18b5"
+        },
+        {
+          "path": "archive/0.2.4/docs/NATIVE_INI.md",
+          "mode": "100644",
+          "git_blob": "e3e35f5146cee7e44b7fa80925cc90ac8c74d12a",
+          "size": 3555,
+          "sha256": "3063fe6b4701c07c60ce32bc5a4552b7fa6e6c0c1bcf6238f178c0879037b805"
+        },
+        {
+          "path": "archive/0.2.4/docs/ROADMAP.md",
+          "mode": "100644",
+          "git_blob": "eb25218ba83274ba50f70085d7bc2f34e7db750a",
+          "size": 975,
+          "sha256": "18f13e89649ea1c8e76113ce3c338b0d280ecd67effb0b2ccb41a5fa8a86bb9d"
+        },
+        {
+          "path": "archive/0.2.4/version.dll",
+          "mode": "100644",
+          "git_blob": "50c04d7f4bf26e0419432cc2ae02588c4a303a23",
+          "size": 15667520,
+          "sha256": "c844646d835a7b88ed1382eea80403d38b433f8ac09cf92581c73698c44ae7c2",
+          "proxy_version": "0.2.4"
+        },
+        {
+          "path": "dlssg_sm86.ini",
+          "mode": "100644",
+          "git_blob": "2c97d64f2239b7d511f7d0a36c16e149dd3329f6",
+          "size": 3548,
+          "sha256": "2616857ee29ec61e33c8b52e1b50f4c93cb5339adbb13b73f0ae71a722427a43"
+        },
+        {
+          "path": "docs/INSTALL.en.md",
+          "mode": "100644",
+          "git_blob": "8554bfcb9219f417bbcfce2453c9ebe1f2d23cd1",
+          "size": 56227,
+          "sha256": "7320384843f69b0018aa1a4c3ecb3474fa64e1abce8dfeb9dd6623658c590099"
+        },
+        {
+          "path": "docs/INSTALL.md",
+          "mode": "100644",
+          "git_blob": "95f5a790ff596ac056c7e10aed84cb05cc57adbc",
+          "size": 51318,
+          "sha256": "f6c0beaefc253002b79ca7e8a5ed0824eb642bd902e80911779983cdda1bd34e"
+        },
+        {
+          "path": "version.dll",
+          "mode": "100644",
+          "git_blob": "bc3cf2b2aa6854cc7af8abff1928f95d5525886c",
+          "size": 30011168,
+          "sha256": "575c9bb475c836cef3c40d7195656955e14220aa9f0f7dde9d817a91911cb85f",
+          "proxy_version": "0.3.4"
+        }
+      ]
+    },
+    {
+      "tag": "0.3.5",
+      "tag_object": "9621db573e07ed54f50c15bbb585ed9a7bdfac28",
+      "commit": "9621db573e07ed54f50c15bbb585ed9a7bdfac28",
+      "files": [
+        {
+          "path": "310.1/.DS_Store",
+          "mode": "100644",
+          "git_blob": "11e9d80a6a5b1b94b2769c72ebf6b0e794cac940",
+          "size": 6148,
+          "sha256": "38155ef44ad7040a5b8a0127983acc1af8f2687f85e9eacc60b02df9e77b2df7"
+        },
+        {
+          "path": "310.1/alternatives/README.md",
+          "mode": "100644",
+          "git_blob": "347d7bd7e480cd890475a136eb577436b3e66ece",
+          "size": 2234,
+          "sha256": "2cbfaa5dc8b47c042c487534273714460eb259f00bbad49d06aa6941ce08dbfb"
+        },
+        {
+          "path": "310.1/alternatives/d3d12.dll",
+          "mode": "100644",
+          "git_blob": "5ff8aade6f1aa50cb8fb4c7e16a9ada83e04ae52",
+          "size": 27995424,
+          "sha256": "1b6c39e4e2aa34e216d70d991ecb3d83eb6bdc01fa5e977a2e837f4433f77f2b",
+          "proxy_version": "0.3.5"
+        },
+        {
+          "path": "310.1/alternatives/dbghelp.dll",
+          "mode": "100644",
+          "git_blob": "2807a03584a59aa70a8b7a5e8af522f9b469069a",
+          "size": 28013344,
+          "sha256": "fc58ee19b315732821ea3216d4d360972c38ce076ebc7d730b3f601c0e5c4a2c",
+          "proxy_version": "0.3.5"
+        },
+        {
+          "path": "310.1/alternatives/dinput8.dll",
+          "mode": "100644",
+          "git_blob": "63bf13bca7af88eaeef8b6c938d21212f2aa6533",
+          "size": 27994912,
+          "sha256": "ed56447cefa8b5836ec39116db620c289cac783fba938a9740c7a1b845a6ffaa",
+          "proxy_version": "0.3.5"
+        },
+        {
+          "path": "310.1/alternatives/dxgi.dll",
+          "mode": "100644",
+          "git_blob": "f35a4a829ab0489db700ea7db9cb23bf6180b610",
+          "size": 27995424,
+          "sha256": "682e9a1318c5e2cb4ccf490c6cabfa2f119bf2f4793ced9c68ea56f3a21dc288",
+          "proxy_version": "0.3.5"
+        },
+        {
+          "path": "310.1/alternatives/winmm.dll",
+          "mode": "100644",
+          "git_blob": "3037153d3e852020e2b21db8c48b4ccf71b0a9b9",
+          "size": 28006688,
+          "sha256": "a62e669d2ceae7645cbafe98d1df69892ede07bf78166acf2185a8beb9843a85",
+          "proxy_version": "0.3.5"
+        },
+        {
+          "path": "310.1/version.dll",
+          "mode": "100644",
+          "git_blob": "f360242f177affd48b6e9fda26da2c4faab60104",
+          "size": 27995424,
+          "sha256": "4ba7fecc68e2229193757839f326176a4f0f4325baab3c324007e0ea844e4d17",
+          "proxy_version": "0.3.5"
+        },
+        {
+          "path": "README.en.md",
+          "mode": "100644",
+          "git_blob": "25bb99a489b6f8ddf487be27fc46189a17fd4215",
+          "size": 14818,
+          "sha256": "ff56347f50b3ff14d2fa8f3d35aac24c97a415758d72eb6f418d43e57730d1a9"
+        },
+        {
+          "path": "README.md",
+          "mode": "100644",
+          "git_blob": "8e2086957fc03e6e6a833e44b82cde11b5850693",
+          "size": 13484,
+          "sha256": "b0dd100acc69f4908bdaa135f97eb15da474c6ed89d74dfccc2481fbe5771b9c"
+        },
+        {
+          "path": "THIRD_PARTY_NOTICES.txt",
+          "mode": "100644",
+          "git_blob": "125de4126918c8d93774dd5f54dff29ed08dea30",
+          "size": 3349,
+          "sha256": "ac3b44ab30a4235edd18feca1ab4f802d57c8d3d0ee4878dc77b81a6b127155f"
+        },
+        {
+          "path": "alternatives/README.md",
+          "mode": "100644",
+          "git_blob": "347d7bd7e480cd890475a136eb577436b3e66ece",
+          "size": 2234,
+          "sha256": "2cbfaa5dc8b47c042c487534273714460eb259f00bbad49d06aa6941ce08dbfb"
+        },
+        {
+          "path": "alternatives/d3d12.dll",
+          "mode": "100644",
+          "git_blob": "1867a81e7841a8b10b42ac9930a41f081d2b851d",
+          "size": 30021920,
+          "sha256": "64b7ecc3f6d70011feed8dfaa20ce500522e8b04170142e2a2000146b4d7ac71",
+          "proxy_version": "0.3.5"
+        },
+        {
+          "path": "alternatives/dbghelp.dll",
+          "mode": "100644",
+          "git_blob": "0eff053d2c6a6d24788926f18d425823d2e7b6cf",
+          "size": 30039840,
+          "sha256": "dfe7f44baa68d237dfe040d4b4cfc9bd44b01e661f3051996db1144e6bb388cb",
+          "proxy_version": "0.3.5"
+        },
+        {
+          "path": "alternatives/dinput8.dll",
+          "mode": "100644",
+          "git_blob": "289fcf3219199fb38ad5d9b163ef337f24026d23",
+          "size": 30021408,
+          "sha256": "4fbad08bb9360a1cd1309a82586353484fe64b7220199344ab83fae308176c6b",
+          "proxy_version": "0.3.5"
+        },
+        {
+          "path": "alternatives/dxgi.dll",
+          "mode": "100644",
+          "git_blob": "ef9640b5c41fecd016b394d2adad0ab1e48f4553",
+          "size": 30021920,
+          "sha256": "52e67020a725c74d5dee62aee4dc166a2f4e5c3adabf04ecab3005ab968fc24d",
+          "proxy_version": "0.3.5"
+        },
+        {
+          "path": "alternatives/winmm.dll",
+          "mode": "100644",
+          "git_blob": "91151d196d7ede5959693f791630ed03fc194607",
+          "size": 30033184,
+          "sha256": "bc3cef25c1ccbbdccdd93db9fae845104bb6c71fd433240e26641881a7e46658",
+          "proxy_version": "0.3.5"
+        },
+        {
+          "path": "archive/.DS_Store",
+          "mode": "100644",
+          "git_blob": "0c3bd20e13916358a1d70a527c49f568e278112f",
+          "size": 8196,
+          "sha256": "f283782a5a06efee05e33b866f4b69bf9b096f5a796da7546ff5af8aedcd111c"
+        },
+        {
+          "path": "archive/0.1.0/README.en.md",
+          "mode": "100644",
+          "git_blob": "2ea8312265ea7aaa41724fddf6011fb8c90b71dc",
+          "size": 11756,
+          "sha256": "101282be1e64ffc98554d9c77813aba91f81af941cade9526aaa171a104c82de"
+        },
+        {
+          "path": "archive/0.1.0/README.md",
+          "mode": "100644",
+          "git_blob": "147eee3daa3fb6b96c207a6e8839eabe04c8167b",
+          "size": 11564,
+          "sha256": "454eb6ac6e84a119ae0f53b6a67b83e4cbb3ac748fcf9fcfaa065cd7f22a3893"
+        },
+        {
+          "path": "archive/0.1.0/THIRD_PARTY_NOTICES.txt",
+          "mode": "100644",
+          "git_blob": "5463da38b9b96004de93fea251b82399d2dbc79d",
+          "size": 2081,
+          "sha256": "71435db5b43c8d5846a1897e1d7dc4e09bb225f4d94abe6a25f7cf6935b92470"
+        },
+        {
+          "path": "archive/0.1.0/dlssg_sm86.ini",
+          "mode": "100644",
+          "git_blob": "dc1cdeea47449a6e24096bd30eb0cbe68148f657",
+          "size": 1459,
+          "sha256": "77a698310818b90039b72c61331cb50e7fc6692eff220ca9eb14c494998c96b8"
+        },
+        {
+          "path": "archive/0.1.0/version.dll",
+          "mode": "100644",
+          "git_blob": "2fd84cc35dcab16fa7a58321d6b4e1b4141145c3",
+          "size": 10522624,
+          "sha256": "03d445237d519ac48cd9226278a0f07aecd7ac597697697eb64404e1d51b3c5a",
+          "proxy_version": "0.1.0"
+        },
+        {
+          "path": "archive/0.2.4/.DS_Store",
+          "mode": "100644",
+          "git_blob": "ce625eabc46f3d942a6222cba2dd9d83064f3001",
+          "size": 8196,
+          "sha256": "34f46b022d404f2ba136a1eb16b1e0ca1050147b1aa495fd90d0489da849f044"
+        },
+        {
+          "path": "archive/0.2.4/README.en.md",
+          "mode": "100644",
+          "git_blob": "cbe331afde28d6e51b448cdbe5d946d199612240",
+          "size": 15545,
+          "sha256": "d01d4828ca1cbd8bc1dc0d9df0d2ea4099ce63dfa6dbb2075573b354ff49feec"
+        },
+        {
+          "path": "archive/0.2.4/README.md",
+          "mode": "100644",
+          "git_blob": "c3444a0f22937949150799285d0bf5f3a39b96c3",
+          "size": 13831,
+          "sha256": "b052c66b4f6b0f3493a5c8f39272c0b1361abf44b58d4d1405fd37b7064a7403"
+        },
+        {
+          "path": "archive/0.2.4/THIRD_PARTY_NOTICES.txt",
+          "mode": "100644",
+          "git_blob": "3f68bae2ea9f9e6cabdd3cd2a739ffd4c2d29131",
+          "size": 2863,
+          "sha256": "689f743ccf99644abd2992e62e6562b00d0bc07ec508153d3a51f7270e5cc5ee"
+        },
+        {
+          "path": "archive/0.2.4/altnative/dinput8.dll",
+          "mode": "100644",
+          "git_blob": "a00546c88e01531943a6e7953283fffc0e5d3919",
+          "size": 15666496,
+          "sha256": "ef3c3d49c5b5c8a17289c24da9b22885570793d72f3db628fa500f9efdb20489",
+          "proxy_version": "0.2.4"
+        },
+        {
+          "path": "archive/0.2.4/altnative/dxgi.dll",
+          "mode": "100644",
+          "git_blob": "6291c9bd3929ca4c72291015c9fe8d20d8e715bd",
+          "size": 15668032,
+          "sha256": "8d29eddbd7f1c3e272d07f94ab8812a80ef5b7aeb73923320bf9a432ddcf74c0",
+          "proxy_version": "0.2.4"
+        },
+        {
+          "path": "archive/0.2.4/altnative/winhttp.dll",
+          "mode": "100644",
+          "git_blob": "bda9e642f3ffaf58b4dd9c630d7fc5d85e957112",
+          "size": 15674176,
+          "sha256": "1619839e4d1b6145ce9a587ba807f42e64f2b0984af9e81700d42ccf46ff7253",
+          "proxy_version": "0.2.4"
+        },
+        {
+          "path": "archive/0.2.4/altnative/winmm.dll",
+          "mode": "100644",
+          "git_blob": "7166b7feef012399e578a741ed54423665d85b74",
+          "size": 15678272,
+          "sha256": "1004dd4ee0edbe4e1af4c8c7b30d4786bea0f5e7c0412566996b4c2543ae7e36",
+          "proxy_version": "0.2.4"
+        },
+        {
+          "path": "archive/0.2.4/config/presets/sm86-default.ini",
+          "mode": "100644",
+          "git_blob": "f79dc0eee5f7267b1ecdf19dbee50074dcfc8f59",
+          "size": 208,
+          "sha256": "ddf1e36d952c9fe1626b3321957c49f2268a562fcc9e707de6a61d66be9be32e"
+        },
+        {
+          "path": "archive/0.2.4/config/presets/sm86-performance.ini",
+          "mode": "100644",
+          "git_blob": "cec805f86656c8685dd20b8552cde2456bc56d80",
+          "size": 269,
+          "sha256": "0a5cbc9940f699618c09d538f057f5598c0daab62cff58827e5644bbabcfec3a"
+        },
+        {
+          "path": "archive/0.2.4/dlssg_sm86.ini",
+          "mode": "100644",
+          "git_blob": "f68878e557c6be4babf678d16efabe93fd3492c0",
+          "size": 581,
+          "sha256": "fd7f0722194e6e8d8c085327d9826effb411925a69a5e7549d70eff26a9f18b5"
+        },
+        {
+          "path": "archive/0.2.4/docs/NATIVE_INI.md",
+          "mode": "100644",
+          "git_blob": "e3e35f5146cee7e44b7fa80925cc90ac8c74d12a",
+          "size": 3555,
+          "sha256": "3063fe6b4701c07c60ce32bc5a4552b7fa6e6c0c1bcf6238f178c0879037b805"
+        },
+        {
+          "path": "archive/0.2.4/docs/ROADMAP.md",
+          "mode": "100644",
+          "git_blob": "eb25218ba83274ba50f70085d7bc2f34e7db750a",
+          "size": 975,
+          "sha256": "18f13e89649ea1c8e76113ce3c338b0d280ecd67effb0b2ccb41a5fa8a86bb9d"
+        },
+        {
+          "path": "archive/0.2.4/version.dll",
+          "mode": "100644",
+          "git_blob": "50c04d7f4bf26e0419432cc2ae02588c4a303a23",
+          "size": 15667520,
+          "sha256": "c844646d835a7b88ed1382eea80403d38b433f8ac09cf92581c73698c44ae7c2",
+          "proxy_version": "0.2.4"
+        },
+        {
+          "path": "dlssg_sm86.ini",
+          "mode": "100644",
+          "git_blob": "2c97d64f2239b7d511f7d0a36c16e149dd3329f6",
+          "size": 3548,
+          "sha256": "2616857ee29ec61e33c8b52e1b50f4c93cb5339adbb13b73f0ae71a722427a43"
+        },
+        {
+          "path": "docs/INSTALL.en.md",
+          "mode": "100644",
+          "git_blob": "8554bfcb9219f417bbcfce2453c9ebe1f2d23cd1",
+          "size": 56227,
+          "sha256": "7320384843f69b0018aa1a4c3ecb3474fa64e1abce8dfeb9dd6623658c590099"
+        },
+        {
+          "path": "docs/INSTALL.md",
+          "mode": "100644",
+          "git_blob": "409e68306b212454d73d424279e85f6887b60239",
+          "size": 52529,
+          "sha256": "bf1b428a90187ee02472c6469b1f69751333d9dbb32c733bde4cd76f4064d786"
+        },
+        {
+          "path": "version.dll",
+          "mode": "100644",
+          "git_blob": "efd92261f2b74e0a0fb927d74bce7a1c0c2413f7",
+          "size": 30021920,
+          "sha256": "c3934a09399f022504227c72df0bf8c0de55f9a08880dddde898c5262cefa838",
+          "proxy_version": "0.3.5"
+        }
+      ]
+    },
+    {
+      "tag": "0.4.0",
+      "tag_object": "6f047bdc885e861575e8b049413ca31dc171a924",
+      "commit": "6f047bdc885e861575e8b049413ca31dc171a924",
+      "files": [
+        {
+          "path": "MANUAL.en.html",
+          "mode": "100644",
+          "git_blob": "1841ce1669cfb57163f8b5ab2d99a12a5518e985",
+          "size": 35643,
+          "sha256": "ad5990de6edb5ea6f16e0344dec89c826d35edb474b6431f9ee63cadc166ca84"
+        },
+        {
+          "path": "MANUAL.html",
+          "mode": "100644",
+          "git_blob": "1e4cb1fc0dba748e17653199e49e5375d60fcf6b",
+          "size": 34098,
+          "sha256": "84ff8597daefa6c4fac922c20b8cf63d6200cd721ac0b1fddb727a15ca82bc7c"
+        },
+        {
+          "path": "README.en.md",
+          "mode": "100644",
+          "git_blob": "8e3c5a912cb403a3ebb307f0ed0b09b87cb6b14e",
+          "size": 21260,
+          "sha256": "574b8e91ecef2ab6c822f62bd3b169f687bece5147a2c782ad87e506d92c53e6"
+        },
+        {
+          "path": "README.md",
+          "mode": "100644",
+          "git_blob": "6bb902eca1f3aa7292a860ff88176c9a22e12f11",
+          "size": 19474,
+          "sha256": "8c788e95e61707c0e90ea57e9ff799b73d5022f5eb3d42a5e1eec3b84fc16f19"
+        },
+        {
+          "path": "THIRD_PARTY_NOTICES.txt",
+          "mode": "100644",
+          "git_blob": "6a23e6cb99cb75433e1e3366bb89cbfdd0ba5e2e",
+          "size": 8139,
+          "sha256": "c8f2449237f0c556ab7b494ae131e534b39614b5d0f1e56e39d95353426ff2f7"
+        },
+        {
+          "path": "alternatives/README.md",
+          "mode": "100644",
+          "git_blob": "94b99dc4dd04ea6c46be0459586db72a3bf85686",
+          "size": 3418,
+          "sha256": "674c50bae71d5c9dc8f635ef28e5d74e221a3780b2ced9255db26b58824916db"
+        },
+        {
+          "path": "alternatives/d3d12.dll",
+          "mode": "100644",
+          "git_blob": "70596d0e0c96975b48a8f8c29df43f44acdf9820",
+          "size": 853792,
+          "sha256": "c4b6f6320a8ad465334514161911941f769d541f8e8d5186171fbe0027ea1ddc",
+          "proxy_version": "0.4.0"
+        },
+        {
+          "path": "alternatives/dbghelp.dll",
+          "mode": "100644",
+          "git_blob": "819fc636268f31e5a33b4c1089c9f525d7dd5448",
+          "size": 871200,
+          "sha256": "33653ddcb57872e275548c4d39c29a3f47c39b1637eea08d62b55953826e839f",
+          "proxy_version": "0.4.0"
+        },
+        {
+          "path": "alternatives/dinput8.dll",
+          "mode": "100644",
+          "git_blob": "975e538bbc9adc5396f168e8ccdf7f2c03b34324",
+          "size": 853280,
+          "sha256": "19f2e77303c11b40e773eed6b90e17df54997b57472127438f9fedd7a5ddc677",
+          "proxy_version": "0.4.0"
+        },
+        {
+          "path": "alternatives/dxgi.dll",
+          "mode": "100644",
+          "git_blob": "981be56fa32373b48dbcd524095d023baa1e8a9a",
+          "size": 853792,
+          "sha256": "2048988dd9cad19e9f25610538edf530b35b036c6701378cf663d7ddf251f5ed",
+          "proxy_version": "0.4.0"
+        },
+        {
+          "path": "alternatives/winmm.dll",
+          "mode": "100644",
+          "git_blob": "30cff09354e2df9369498c0fedad9b6d3130311c",
+          "size": 864544,
+          "sha256": "c86bd90c0fbaf3db0b5cc17c5bbece40eb34a6a3327fe2c0dd8ab455ba985203",
+          "proxy_version": "0.4.0"
+        },
+        {
+          "path": "archive/.DS_Store",
+          "mode": "100644",
+          "git_blob": "0c3bd20e13916358a1d70a527c49f568e278112f",
+          "size": 8196,
+          "sha256": "f283782a5a06efee05e33b866f4b69bf9b096f5a796da7546ff5af8aedcd111c"
+        },
+        {
+          "path": "archive/0.1.0/README.en.md",
+          "mode": "100644",
+          "git_blob": "2ea8312265ea7aaa41724fddf6011fb8c90b71dc",
+          "size": 11756,
+          "sha256": "101282be1e64ffc98554d9c77813aba91f81af941cade9526aaa171a104c82de"
+        },
+        {
+          "path": "archive/0.1.0/README.md",
+          "mode": "100644",
+          "git_blob": "147eee3daa3fb6b96c207a6e8839eabe04c8167b",
+          "size": 11564,
+          "sha256": "454eb6ac6e84a119ae0f53b6a67b83e4cbb3ac748fcf9fcfaa065cd7f22a3893"
+        },
+        {
+          "path": "archive/0.1.0/THIRD_PARTY_NOTICES.txt",
+          "mode": "100644",
+          "git_blob": "5463da38b9b96004de93fea251b82399d2dbc79d",
+          "size": 2081,
+          "sha256": "71435db5b43c8d5846a1897e1d7dc4e09bb225f4d94abe6a25f7cf6935b92470"
+        },
+        {
+          "path": "archive/0.1.0/dlssg_sm86.ini",
+          "mode": "100644",
+          "git_blob": "dc1cdeea47449a6e24096bd30eb0cbe68148f657",
+          "size": 1459,
+          "sha256": "77a698310818b90039b72c61331cb50e7fc6692eff220ca9eb14c494998c96b8"
+        },
+        {
+          "path": "archive/0.1.0/version.dll",
+          "mode": "100644",
+          "git_blob": "2fd84cc35dcab16fa7a58321d6b4e1b4141145c3",
+          "size": 10522624,
+          "sha256": "03d445237d519ac48cd9226278a0f07aecd7ac597697697eb64404e1d51b3c5a",
+          "proxy_version": "0.1.0"
+        },
+        {
+          "path": "archive/0.2.4/.DS_Store",
+          "mode": "100644",
+          "git_blob": "ce625eabc46f3d942a6222cba2dd9d83064f3001",
+          "size": 8196,
+          "sha256": "34f46b022d404f2ba136a1eb16b1e0ca1050147b1aa495fd90d0489da849f044"
+        },
+        {
+          "path": "archive/0.2.4/README.en.md",
+          "mode": "100644",
+          "git_blob": "cbe331afde28d6e51b448cdbe5d946d199612240",
+          "size": 15545,
+          "sha256": "d01d4828ca1cbd8bc1dc0d9df0d2ea4099ce63dfa6dbb2075573b354ff49feec"
+        },
+        {
+          "path": "archive/0.2.4/README.md",
+          "mode": "100644",
+          "git_blob": "c3444a0f22937949150799285d0bf5f3a39b96c3",
+          "size": 13831,
+          "sha256": "b052c66b4f6b0f3493a5c8f39272c0b1361abf44b58d4d1405fd37b7064a7403"
+        },
+        {
+          "path": "archive/0.2.4/THIRD_PARTY_NOTICES.txt",
+          "mode": "100644",
+          "git_blob": "3f68bae2ea9f9e6cabdd3cd2a739ffd4c2d29131",
+          "size": 2863,
+          "sha256": "689f743ccf99644abd2992e62e6562b00d0bc07ec508153d3a51f7270e5cc5ee"
+        },
+        {
+          "path": "archive/0.2.4/altnative/dinput8.dll",
+          "mode": "100644",
+          "git_blob": "a00546c88e01531943a6e7953283fffc0e5d3919",
+          "size": 15666496,
+          "sha256": "ef3c3d49c5b5c8a17289c24da9b22885570793d72f3db628fa500f9efdb20489",
+          "proxy_version": "0.2.4"
+        },
+        {
+          "path": "archive/0.2.4/altnative/dxgi.dll",
+          "mode": "100644",
+          "git_blob": "6291c9bd3929ca4c72291015c9fe8d20d8e715bd",
+          "size": 15668032,
+          "sha256": "8d29eddbd7f1c3e272d07f94ab8812a80ef5b7aeb73923320bf9a432ddcf74c0",
+          "proxy_version": "0.2.4"
+        },
+        {
+          "path": "archive/0.2.4/altnative/winhttp.dll",
+          "mode": "100644",
+          "git_blob": "bda9e642f3ffaf58b4dd9c630d7fc5d85e957112",
+          "size": 15674176,
+          "sha256": "1619839e4d1b6145ce9a587ba807f42e64f2b0984af9e81700d42ccf46ff7253",
+          "proxy_version": "0.2.4"
+        },
+        {
+          "path": "archive/0.2.4/altnative/winmm.dll",
+          "mode": "100644",
+          "git_blob": "7166b7feef012399e578a741ed54423665d85b74",
+          "size": 15678272,
+          "sha256": "1004dd4ee0edbe4e1af4c8c7b30d4786bea0f5e7c0412566996b4c2543ae7e36",
+          "proxy_version": "0.2.4"
+        },
+        {
+          "path": "archive/0.2.4/config/presets/sm86-default.ini",
+          "mode": "100644",
+          "git_blob": "f79dc0eee5f7267b1ecdf19dbee50074dcfc8f59",
+          "size": 208,
+          "sha256": "ddf1e36d952c9fe1626b3321957c49f2268a562fcc9e707de6a61d66be9be32e"
+        },
+        {
+          "path": "archive/0.2.4/config/presets/sm86-performance.ini",
+          "mode": "100644",
+          "git_blob": "cec805f86656c8685dd20b8552cde2456bc56d80",
+          "size": 269,
+          "sha256": "0a5cbc9940f699618c09d538f057f5598c0daab62cff58827e5644bbabcfec3a"
+        },
+        {
+          "path": "archive/0.2.4/dlssg_sm86.ini",
+          "mode": "100644",
+          "git_blob": "f68878e557c6be4babf678d16efabe93fd3492c0",
+          "size": 581,
+          "sha256": "fd7f0722194e6e8d8c085327d9826effb411925a69a5e7549d70eff26a9f18b5"
+        },
+        {
+          "path": "archive/0.2.4/docs/NATIVE_INI.md",
+          "mode": "100644",
+          "git_blob": "e3e35f5146cee7e44b7fa80925cc90ac8c74d12a",
+          "size": 3555,
+          "sha256": "3063fe6b4701c07c60ce32bc5a4552b7fa6e6c0c1bcf6238f178c0879037b805"
+        },
+        {
+          "path": "archive/0.2.4/docs/ROADMAP.md",
+          "mode": "100644",
+          "git_blob": "eb25218ba83274ba50f70085d7bc2f34e7db750a",
+          "size": 975,
+          "sha256": "18f13e89649ea1c8e76113ce3c338b0d280ecd67effb0b2ccb41a5fa8a86bb9d"
+        },
+        {
+          "path": "archive/0.2.4/version.dll",
+          "mode": "100644",
+          "git_blob": "50c04d7f4bf26e0419432cc2ae02588c4a303a23",
+          "size": 15667520,
+          "sha256": "c844646d835a7b88ed1382eea80403d38b433f8ac09cf92581c73698c44ae7c2",
+          "proxy_version": "0.2.4"
+        },
+        {
+          "path": "archive/0.3.5/310.1/.DS_Store",
+          "mode": "100644",
+          "git_blob": "11e9d80a6a5b1b94b2769c72ebf6b0e794cac940",
+          "size": 6148,
+          "sha256": "38155ef44ad7040a5b8a0127983acc1af8f2687f85e9eacc60b02df9e77b2df7"
+        },
+        {
+          "path": "archive/0.3.5/310.1/alternatives/README.md",
+          "mode": "100644",
+          "git_blob": "347d7bd7e480cd890475a136eb577436b3e66ece",
+          "size": 2234,
+          "sha256": "2cbfaa5dc8b47c042c487534273714460eb259f00bbad49d06aa6941ce08dbfb"
+        },
+        {
+          "path": "archive/0.3.5/310.1/alternatives/d3d12.dll",
+          "mode": "100644",
+          "git_blob": "5ff8aade6f1aa50cb8fb4c7e16a9ada83e04ae52",
+          "size": 27995424,
+          "sha256": "1b6c39e4e2aa34e216d70d991ecb3d83eb6bdc01fa5e977a2e837f4433f77f2b",
+          "proxy_version": "0.3.5"
+        },
+        {
+          "path": "archive/0.3.5/310.1/alternatives/dbghelp.dll",
+          "mode": "100644",
+          "git_blob": "2807a03584a59aa70a8b7a5e8af522f9b469069a",
+          "size": 28013344,
+          "sha256": "fc58ee19b315732821ea3216d4d360972c38ce076ebc7d730b3f601c0e5c4a2c",
+          "proxy_version": "0.3.5"
+        },
+        {
+          "path": "archive/0.3.5/310.1/alternatives/dinput8.dll",
+          "mode": "100644",
+          "git_blob": "63bf13bca7af88eaeef8b6c938d21212f2aa6533",
+          "size": 27994912,
+          "sha256": "ed56447cefa8b5836ec39116db620c289cac783fba938a9740c7a1b845a6ffaa",
+          "proxy_version": "0.3.5"
+        },
+        {
+          "path": "archive/0.3.5/310.1/alternatives/dxgi.dll",
+          "mode": "100644",
+          "git_blob": "f35a4a829ab0489db700ea7db9cb23bf6180b610",
+          "size": 27995424,
+          "sha256": "682e9a1318c5e2cb4ccf490c6cabfa2f119bf2f4793ced9c68ea56f3a21dc288",
+          "proxy_version": "0.3.5"
+        },
+        {
+          "path": "archive/0.3.5/310.1/alternatives/winmm.dll",
+          "mode": "100644",
+          "git_blob": "3037153d3e852020e2b21db8c48b4ccf71b0a9b9",
+          "size": 28006688,
+          "sha256": "a62e669d2ceae7645cbafe98d1df69892ede07bf78166acf2185a8beb9843a85",
+          "proxy_version": "0.3.5"
+        },
+        {
+          "path": "archive/0.3.5/310.1/version.dll",
+          "mode": "100644",
+          "git_blob": "f360242f177affd48b6e9fda26da2c4faab60104",
+          "size": 27995424,
+          "sha256": "4ba7fecc68e2229193757839f326176a4f0f4325baab3c324007e0ea844e4d17",
+          "proxy_version": "0.3.5"
+        },
+        {
+          "path": "archive/0.3.5/README.en.md",
+          "mode": "100644",
+          "git_blob": "25bb99a489b6f8ddf487be27fc46189a17fd4215",
+          "size": 14818,
+          "sha256": "ff56347f50b3ff14d2fa8f3d35aac24c97a415758d72eb6f418d43e57730d1a9"
+        },
+        {
+          "path": "archive/0.3.5/README.md",
+          "mode": "100644",
+          "git_blob": "8e2086957fc03e6e6a833e44b82cde11b5850693",
+          "size": 13484,
+          "sha256": "b0dd100acc69f4908bdaa135f97eb15da474c6ed89d74dfccc2481fbe5771b9c"
+        },
+        {
+          "path": "archive/0.3.5/THIRD_PARTY_NOTICES.txt",
+          "mode": "100644",
+          "git_blob": "125de4126918c8d93774dd5f54dff29ed08dea30",
+          "size": 3349,
+          "sha256": "ac3b44ab30a4235edd18feca1ab4f802d57c8d3d0ee4878dc77b81a6b127155f"
+        },
+        {
+          "path": "archive/0.3.5/alternatives/README.md",
+          "mode": "100644",
+          "git_blob": "347d7bd7e480cd890475a136eb577436b3e66ece",
+          "size": 2234,
+          "sha256": "2cbfaa5dc8b47c042c487534273714460eb259f00bbad49d06aa6941ce08dbfb"
+        },
+        {
+          "path": "archive/0.3.5/alternatives/d3d12.dll",
+          "mode": "100644",
+          "git_blob": "1867a81e7841a8b10b42ac9930a41f081d2b851d",
+          "size": 30021920,
+          "sha256": "64b7ecc3f6d70011feed8dfaa20ce500522e8b04170142e2a2000146b4d7ac71",
+          "proxy_version": "0.3.5"
+        },
+        {
+          "path": "archive/0.3.5/alternatives/dbghelp.dll",
+          "mode": "100644",
+          "git_blob": "0eff053d2c6a6d24788926f18d425823d2e7b6cf",
+          "size": 30039840,
+          "sha256": "dfe7f44baa68d237dfe040d4b4cfc9bd44b01e661f3051996db1144e6bb388cb",
+          "proxy_version": "0.3.5"
+        },
+        {
+          "path": "archive/0.3.5/alternatives/dinput8.dll",
+          "mode": "100644",
+          "git_blob": "289fcf3219199fb38ad5d9b163ef337f24026d23",
+          "size": 30021408,
+          "sha256": "4fbad08bb9360a1cd1309a82586353484fe64b7220199344ab83fae308176c6b",
+          "proxy_version": "0.3.5"
+        },
+        {
+          "path": "archive/0.3.5/alternatives/dxgi.dll",
+          "mode": "100644",
+          "git_blob": "ef9640b5c41fecd016b394d2adad0ab1e48f4553",
+          "size": 30021920,
+          "sha256": "52e67020a725c74d5dee62aee4dc166a2f4e5c3adabf04ecab3005ab968fc24d",
+          "proxy_version": "0.3.5"
+        },
+        {
+          "path": "archive/0.3.5/alternatives/winmm.dll",
+          "mode": "100644",
+          "git_blob": "91151d196d7ede5959693f791630ed03fc194607",
+          "size": 30033184,
+          "sha256": "bc3cef25c1ccbbdccdd93db9fae845104bb6c71fd433240e26641881a7e46658",
+          "proxy_version": "0.3.5"
+        },
+        {
+          "path": "archive/0.3.5/dlssg_sm86.ini",
+          "mode": "100644",
+          "git_blob": "2c97d64f2239b7d511f7d0a36c16e149dd3329f6",
+          "size": 3548,
+          "sha256": "2616857ee29ec61e33c8b52e1b50f4c93cb5339adbb13b73f0ae71a722427a43"
+        },
+        {
+          "path": "archive/0.3.5/docs/INSTALL.en.md",
+          "mode": "100644",
+          "git_blob": "8554bfcb9219f417bbcfce2453c9ebe1f2d23cd1",
+          "size": 56227,
+          "sha256": "7320384843f69b0018aa1a4c3ecb3474fa64e1abce8dfeb9dd6623658c590099"
+        },
+        {
+          "path": "archive/0.3.5/docs/INSTALL.md",
+          "mode": "100644",
+          "git_blob": "409e68306b212454d73d424279e85f6887b60239",
+          "size": 52529,
+          "sha256": "bf1b428a90187ee02472c6469b1f69751333d9dbb32c733bde4cd76f4064d786"
+        },
+        {
+          "path": "archive/0.3.5/version.dll",
+          "mode": "100644",
+          "git_blob": "efd92261f2b74e0a0fb927d74bce7a1c0c2413f7",
+          "size": 30021920,
+          "sha256": "c3934a09399f022504227c72df0bf8c0de55f9a08880dddde898c5262cefa838",
+          "proxy_version": "0.3.5"
+        },
+        {
+          "path": "dlssg_sm86.ini",
+          "mode": "100644",
+          "git_blob": "5a69005b2cb0ef4274a75e38223e4663267dee21",
+          "size": 6810,
+          "sha256": "1f780afbd480e1ec14044e17c37f29c22affaf4cc8da322acde927e987106136"
+        },
+        {
+          "path": "dlssg_sm86/backend/sm86_backend.dll",
+          "mode": "100644",
+          "git_blob": "ae279d6ce4d3927c913450983e888462a4a0b93c",
+          "size": 2109728,
+          "sha256": "30ffc6e09a347ccde87ecc6fa54fd7818f5ed8a9353f5c31c2a90835c7f0ca9b"
+        },
+        {
+          "path": "dlssg_sm86/kernels/fg_kernels.dll",
+          "mode": "100644",
+          "git_blob": "d74caaeb9eea7f16a3adef829070f41cd072c4f0",
+          "size": 18318624,
+          "sha256": "1394c2d5d9cc8938ba3e52b043048d20d6d4c13a019c161b11a3dfd16343ec24"
+        },
+        {
+          "path": "dlssg_sm86/runtime/nvngx_dlssg.dll",
+          "mode": "100644",
+          "git_blob": "4902d6f750aefe978065429d8dcea6c5cfbbd298",
+          "size": 7506544,
+          "sha256": "cadee1aa6db3907babdc3285da2aebc4553d92b89c38ba3eae8abd8bba1bea72"
+        },
+        {
+          "path": "dlssg_sm86/xefg/xefg_kernels.dll",
+          "mode": "100644",
+          "git_blob": "98f5bf29221405d5f413a3ae9dc1d7b5d44426dc",
+          "size": 5360928,
+          "sha256": "1b354c42596f6fad71dbe6ddd600ad2bf637f906ee6adb3de1b3dad01cd7e3f9"
+        },
+        {
+          "path": "docs/INSTALL.en.md",
+          "mode": "100644",
+          "git_blob": "4da9fe0700f34ce08f9ab8c1ab6a8cb633c71a36",
+          "size": 150781,
+          "sha256": "fce87914a9fdd666fcffb46880cfe33f311cbc27a8eeff5593b92fc77a498ebd"
+        },
+        {
+          "path": "docs/INSTALL.md",
+          "mode": "100644",
+          "git_blob": "5b461cdb9084ae1ad16f69026cd4f7f65c824f65",
+          "size": 138184,
+          "sha256": "dcb78a704995920d82edec746e2c052509c310a5c9b7437f13597060f576e7af"
+        },
+        {
+          "path": "version.dll",
+          "mode": "100644",
+          "git_blob": "87bcb73a96665a58ce73665c8b168ad9c094724a",
+          "size": 853280,
+          "sha256": "7b3f90435be4f94348bf8d128c84871c7f904c704f7690601a263277c327a7b2",
+          "proxy_version": "0.4.0"
+        }
+      ]
+    }
+  ]
+}

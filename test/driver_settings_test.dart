@@ -3,9 +3,9 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('公开配置键拥有默认值和说明', () {
-    final setting = driverSettingDefinition('FRAMEGENERATION', 'optimized');
+    final setting = driverSettingDefinition('DLSSG', 'optimized');
 
-    expect(setting?.defaultValue, '1');
+    expect(setting?.defaultValue, '2');
     expect(setting?.description, isNotEmpty);
     expect(setting?.choices, contains('0'));
   });

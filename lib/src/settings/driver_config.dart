@@ -150,6 +150,17 @@ class _DirectDriverSettings extends StatelessWidget {
 
   @override
   Widget build(BuildContext c) {
+    final engine =
+        (config.value('FrameGeneration', 'Engine') ??
+                config.sourceDefaults['framegeneration/engine'] ??
+                'DLSS')
+            .trim()
+            .toLowerCase();
+    final activeEngineSection = switch (engine) {
+      'dlss' => 'dlssg',
+      'xess' => 'xessfg',
+      _ => null,
+    };
     return Container(
       decoration: BoxDecoration(
         color: _appBackground,
@@ -158,18 +169,22 @@ class _DirectDriverSettings extends StatelessWidget {
       child: Column(
         children: [
           const _DriverSettingsTableHeader(),
-          for (final section in config.sections) ...[
-            _IniSectionHeader(section.name),
-            for (final setting in section.settings)
-              _DriverSettingRow(
-                section: section.name,
-                setting: setting,
-                enabled: enabled,
-                onChanged: (value) => onChanged(
-                  config.withValue(section.name, setting.key, value),
+          for (final section in config.sections)
+            if (!['dlssg', 'xessfg'].contains(section.name.toLowerCase()) ||
+                section.name.toLowerCase() == activeEngineSection) ...[
+              _IniSectionHeader(section.name),
+              for (final setting in section.settings)
+                _DriverSettingRow(
+                  section: section.name,
+                  setting: setting,
+                  defaultValue: config
+                      .sourceDefaults['${section.name.toLowerCase()}/${setting.key.toLowerCase()}'],
+                  enabled: enabled,
+                  onChanged: (value) => onChanged(
+                    config.withValue(section.name, setting.key, value),
+                  ),
                 ),
-              ),
-          ],
+            ],
         ],
       ),
     );
@@ -213,12 +228,14 @@ class _DriverSettingRow extends StatefulWidget {
     required this.setting,
     required this.enabled,
     required this.onChanged,
+    this.defaultValue,
   });
 
   final String section;
   final IniSetting setting;
   final bool enabled;
   final ValueChanged<String> onChanged;
+  final String? defaultValue;
 
   @override
   State<_DriverSettingRow> createState() => _DriverSettingRowState();
@@ -259,6 +276,7 @@ class _DriverSettingRowState extends State<_DriverSettingRow> {
                         section: widget.section,
                         settingKey: widget.setting.key,
                         definition: definition,
+                        defaultValue: widget.defaultValue,
                       ),
                     ],
                   ],
@@ -271,6 +289,7 @@ class _DriverSettingRowState extends State<_DriverSettingRow> {
                   section: widget.section,
                   setting: widget.setting,
                   definition: definition,
+                  defaultValue: widget.defaultValue,
                   enabled: widget.enabled,
                   onChanged: widget.onChanged,
                 ),
@@ -288,11 +307,13 @@ class _DriverSettingInfo extends StatelessWidget {
     required this.section,
     required this.settingKey,
     required this.definition,
+    this.defaultValue,
   });
 
   final String section;
   final String settingKey;
   final DriverSettingDefinition definition;
+  final String? defaultValue;
 
   @override
   Widget build(BuildContext context) => SizedBox(
@@ -310,7 +331,7 @@ class _DriverSettingInfo extends StatelessWidget {
         builder: (context) => AlertDialog(
           title: Text('[$section] $settingKey'),
           content: Text(
-            '${definition.description}\n\n默认值：${definition.defaultValue.isEmpty ? '留空' : definition.defaultValue}',
+            '${definition.description}\n\n默认值：${(defaultValue ?? definition.defaultValue).isEmpty ? '留空' : defaultValue ?? definition.defaultValue}',
           ),
           actions: [
             TextButton(
@@ -332,6 +353,7 @@ class _DriverSettingValue extends StatelessWidget {
     required this.definition,
     required this.enabled,
     required this.onChanged,
+    this.defaultValue,
   });
 
   final String section;
@@ -339,6 +361,7 @@ class _DriverSettingValue extends StatelessWidget {
   final DriverSettingDefinition? definition;
   final bool enabled;
   final ValueChanged<String> onChanged;
+  final String? defaultValue;
 
   @override
   Widget build(BuildContext context) {
@@ -356,7 +379,22 @@ class _DriverSettingValue extends StatelessWidget {
             tooltip: '',
             onSelected: onChanged,
             itemBuilder: (context) => [
-              for (final option in known.choices)
+              for (final option in {
+                ...known.choices,
+                if (defaultValue != null &&
+                    defaultValue!.isNotEmpty &&
+                    !known.choices.any(
+                      (value) =>
+                          value.toLowerCase() == defaultValue!.toLowerCase(),
+                    ))
+                  defaultValue!,
+                if (setting.value.isNotEmpty &&
+                    !known.choices.any(
+                      (value) =>
+                          value.toLowerCase() == setting.value.toLowerCase(),
+                    ))
+                  setting.value,
+              })
                 PopupMenuItem(value: option, child: Text(option)),
             ],
             child: Row(
@@ -385,12 +423,7 @@ class _DriverSettingValue extends StatelessWidget {
       initialValue: setting.value,
       enabled: enabled,
       onFieldSubmitted: onChanged,
-      decoration: InputDecoration(
-        isDense: true,
-        hintText: setting.key == 'CacheDirectory' && setting.value.isEmpty
-            ? r'%LOCALAPPDATA%\DlssgSm86\bundles'
-            : '按 Enter 保存',
-      ),
+      decoration: InputDecoration(isDense: true, hintText: '按 Enter 保存'),
     );
   }
 }
@@ -409,7 +442,10 @@ class _IniSectionHeader extends StatelessWidget {
     ),
     child: Text(
       '[$section]',
-      style: const TextStyle(color: _secondaryText, fontWeight: _uiEmphasisWeight),
+      style: const TextStyle(
+        color: _secondaryText,
+        fontWeight: _uiEmphasisWeight,
+      ),
     ),
   );
 }

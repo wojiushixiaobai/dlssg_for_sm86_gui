@@ -12,6 +12,7 @@
 flutter pub get
 flutter test
 ```
+
 ## 安装
 
 访问 [Release](https://github.com/wojiushixiaobai/dlssg_for_sm86_gui/releases) 下载构建好的二进制文件，解压后执行 dlssg-for-sm86-manager.exe。

@@ -5,8 +5,7 @@ bool _hasManageableConfig(ModStatus status) =>
 
 bool _needsDriverUpdate(ModStatus status, String? currentVersion) =>
     status.kind == ModStateKind.applied &&
-    (status.version == '未知版本' ||
-        (currentVersion != null && status.version != currentVersion));
+    isDriverUpdateAvailable(status.version, currentVersion);
 
 class GameSettings extends StatefulWidget {
   const GameSettings(
@@ -208,6 +207,26 @@ class _GameSettingsState extends State<GameSettings> {
   Future<void> install(BuildContext c, GameView v) async {
     final selectedProxy = proxy;
     if (selectedProxy == null) return;
+    if (v.mod.kind == ModStateKind.applied &&
+        requiresCleanInstall(
+          v.mod.version,
+          widget.manager.info.installedVersion,
+        )) {
+      await showDialog<void>(
+        context: c,
+        builder: (context) => AlertDialog(
+          title: const Text('需要重新安装'),
+          content: const Text('0.4.0 的文件结构已变更，请先卸载旧版本，再重新安装；配置需在新版 INI 中重新设置。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('确定'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
     await widget.act(() async {
       try {
         await widget.manager.installMod(v.game.id, proxy: selectedProxy);

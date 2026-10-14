@@ -6,7 +6,7 @@ import 'package:ffi/ffi.dart';
 import 'package:win32/win32.dart';
 
 // SHA-256 of the complete DER signing certificate, not its display name.
-// See docs/dll-identification.md for provenance and the update procedure.
+// Historical DLL versions are identified by driver-fingerprints.json.
 const trustedDlssgCertificates = {
   '080e89dcd7f0c8c67b32639938f9212e8636970eb9365247f457797422a1f47f',
   '03055e992aca440499639451bbd2021276a6d324ea9a650240a382b8b547f959',

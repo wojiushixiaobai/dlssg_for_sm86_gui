@@ -69,9 +69,11 @@ class ManagedInstall {
     required this.dllSha256,
     required this.version,
     this.installedAt,
+    this.runtimeFiles = const {},
   });
   final String proxy, dllSha256, version;
   final DateTime? installedAt;
+  final Map<String, String> runtimeFiles;
   factory ManagedInstall.fromJson(Object? value) {
     final map = _map(value);
     return ManagedInstall(
@@ -79,6 +81,7 @@ class ManagedInstall {
       dllSha256: _string(map, 'dllSha256', 'dll_sha256') ?? '',
       version: _string(map, 'version') ?? '本地包',
       installedAt: _date(_string(map, 'installedAt', 'installed_at')),
+      runtimeFiles: Map<String, String>.from(map['runtimeFiles'] as Map? ?? {}),
     );
   }
   Map<String, dynamic> toJson() => {
@@ -86,6 +89,7 @@ class ManagedInstall {
     'dllSha256': dllSha256,
     'version': version,
     'installedAt': installedAt?.toIso8601String(),
+    'runtimeFiles': runtimeFiles,
   };
 }
 
@@ -174,9 +178,10 @@ class IniSection {
 /// prescribe known sections or keys, so newer driver packages need no app
 /// update merely to expose their configuration.
 class ConfigProfile {
-  const ConfigProfile({required this.sections});
+  const ConfigProfile({required this.sections, this.sourceDefaults = const {}});
 
   final List<IniSection> sections;
+  final Map<String, String> sourceDefaults;
 
   String? value(String section, String key) {
     for (final item in sections) {
@@ -192,6 +197,7 @@ class ConfigProfile {
 
   ConfigProfile withValue(String section, String key, String value) =>
       ConfigProfile(
+        sourceDefaults: sourceDefaults,
         sections: [
           for (final item in sections)
             if (item.name.toLowerCase() == section.toLowerCase())
@@ -208,6 +214,41 @@ class ConfigProfile {
               item,
         ],
       );
+
+  /// Add newly introduced defaults without changing any existing setting.
+  ConfigProfile withDefaults(ConfigProfile defaults) {
+    final merged = List<IniSection>.of(sections);
+    for (final section in defaults.sections) {
+      final index = merged.indexWhere(
+        (item) => item.name.toLowerCase() == section.name.toLowerCase(),
+      );
+      if (index < 0) {
+        merged.add(section);
+        continue;
+      }
+      final current = merged[index];
+      final keys = current.settings
+          .map((setting) => setting.key.toLowerCase())
+          .toSet();
+      merged[index] = IniSection(
+        name: current.name,
+        settings: [
+          ...current.settings,
+          for (final setting in section.settings)
+            if (!keys.contains(setting.key.toLowerCase())) setting,
+        ],
+      );
+    }
+    return ConfigProfile(
+      sections: merged,
+      sourceDefaults: {
+        for (final section in defaults.sections)
+          for (final setting in section.settings)
+            '${section.name.toLowerCase()}/${setting.key.toLowerCase()}':
+                setting.value,
+      },
+    );
+  }
 
   String toIni() {
     final lines = <String>[];

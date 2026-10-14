@@ -84,9 +84,11 @@ class Drivers extends StatelessWidget {
   Widget build(BuildContext c) {
     final ready = info?.modAvailable == true;
     final installedVersion = info?.installedVersion;
-    final updateAvailable =
-        latestVersion != null && latestVersion != installedVersion;
-    final upToDate = ready && latestVersion == installedVersion;
+    final updateAvailable = isDriverUpdateAvailable(
+      installedVersion,
+      latestVersion,
+    );
+    final upToDate = ready && latestVersion != null && !updateAvailable;
     final updateTitle = updateCheckFailed
         ? '暂时无法检查更新'
         : updateAvailable
@@ -190,7 +192,7 @@ class Drivers extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                '最新版本会从 sdli1995/dlssg_for_sm86 的 GitHub latest Release 获取。下载完成后会校验所需 DLL 并缓存安装包；不会改动已安装游戏的 INI。',
+                '最新版本会从 sdli1995/dlssg_for_sm86 的 GitHub latest Release 获取完整 x64 ZIP。下载完成后会校验运行文件并缓存安装包。0.3.x 升级到 0.4.0 必须先卸载，再重新安装并设置新版配置。',
                 style: TextStyle(color: _secondaryText, height: 1.55),
               ),
               const SizedBox(height: 5),
