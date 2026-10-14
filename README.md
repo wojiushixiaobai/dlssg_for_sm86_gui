@@ -1,6 +1,6 @@
 # DLSSG for SM86 Manager
 
-在 RTX 30 系列（SM86）和 RTX 20 系列（SM75）上启用 NVIDIA DLSS 帧生成（DLSS-G）。
+在 RTX 30 系列（SM86）、RTX 20 系列（SM75）和 RTX 40 系列上启用 NVIDIA DLSS 帧生成（DLSS-G）。
 
 `%LOCALAPPDATA%\dlssg_for_sm86_gui` 配置文件路径。
 
