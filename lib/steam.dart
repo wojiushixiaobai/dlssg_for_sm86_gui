@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:win32/win32.dart';
 
 import 'models.dart';
+import 'game_layout.dart';
 import 'vdf.dart';
 
 class SteamArtworkSource {
@@ -475,7 +476,14 @@ class SteamScanner {
               onlyUnrealEngineExecutable: true,
             )
           : null;
+      final publisherExe = GameLayout.resolve(
+        p.join(gameFolder.path, 'launcher.exe'),
+      ).executables.first;
+      final hasPublisherExe =
+          publisherExe != p.join(gameFolder.path, 'launcher.exe') &&
+          File(publisherExe).existsSync();
       final detectedExe =
+          (hasPublisherExe ? publisherExe : null) ??
           unrealExe ??
           configuredOrSavedExe ??
           await _findGameExecutable(
@@ -495,6 +503,7 @@ class SteamScanner {
               existingGame.exePath,
               detectedExe,
             ) ||
+            (hasPublisherExe && existingGame.exePath != publisherExe) ||
             existingGame.exePath == null ||
             !File(existingGame.exePath!).existsSync()) {
           existingGame.exePath = detectedExe;

@@ -237,6 +237,43 @@ void main() {
       final spacewar = games.singleWhere((game) => game.source.appId == 480);
       expect(spacewar.exePath, exe.path);
     });
+    test('PBZ 扫描优先使用 platform/steam 并修正已有 Unreal 路径', () async {
+      final root = await Directory.systemTemp.createTemp('dlssg-pbz-scan-');
+      addTearDown(() => root.delete(recursive: true));
+      final manifest = File(
+        p.join(root.path, 'steamapps', 'appmanifest_480.acf'),
+      );
+      await manifest.parent.create(recursive: true);
+      await manifest.writeAsString(
+        '"AppState" { "appid" "480" "name" "PBZ" "installdir" "PBZ" }',
+      );
+      final gameRoot = p.join(root.path, 'steamapps', 'common', 'PBZ');
+      final unreal = File(
+        p.join(
+          gameRoot,
+          'ProjectPBZ',
+          'Binaries',
+          'Win64',
+          'PBZ-Win64-Shipping.exe',
+        ),
+      );
+      await unreal.parent.create(recursive: true);
+      await unreal.writeAsString('unreal');
+      final runtime = File(p.join(gameRoot, 'platform', 'steam', 'PBZ.exe'));
+      await runtime.parent.create(recursive: true);
+      await runtime.writeAsString('runtime');
+      final scanner = SteamScanner(steamPath: () => root.path);
+      final games = await scanner.scan(existing: []);
+      final pbz = games.singleWhere((g) => g.source.appId == 480);
+      expect(pbz.exePath, runtime.path);
+      pbz.exePath = unreal.path;
+      final rescanned = await scanner.scan(existing: games);
+      expect(
+        rescanned.singleWhere((g) => g.source.appId == 480).exePath,
+        runtime.path,
+      );
+    });
+
     test('按 Steam appinfo 的 Windows 启动配置识别 EXE', () async {
       final root = await Directory.systemTemp.createTemp(
         'dlssg-steam-appinfo-',

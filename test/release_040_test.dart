@@ -43,7 +43,10 @@ List<int> zipBytes(Map<String, String> files) {
   final archive = Archive();
   for (final entry in files.entries) {
     final bytes = utf8.encode(entry.value);
-    archive.addFile(ArchiveFile(entry.key, bytes.length, bytes));
+    archive.addFile(
+      ArchiveFile(entry.key, bytes.length, bytes)
+        ..lastModTime = DateTime.utc(2026).millisecondsSinceEpoch ~/ 1000,
+    );
   }
   return ZipEncoder().encodeBytes(archive);
 }
@@ -125,6 +128,155 @@ void main() {
     await exe.writeAsString('exe');
     return manager.addManualGame(name, exe.path);
   }
+
+  Future<(File, List<Directory>, File)> yysls({bool dx12 = true}) async {
+    final launcher = File(
+      p.join(root.path, 'yysls', 'Win32', 'deploy', 'launcher.exe'),
+    );
+    await launcher.parent.create(recursive: true);
+    await launcher.writeAsString('launcher');
+    final install = p.join(root.path, 'yysls', 'yysls_medium');
+    final settings = File(p.join(launcher.parent.path, 'setting.ini'));
+    await settings.writeAsString(
+      '[General]\nInstallPath=${install.replaceAll('\\', '/')}\nDX12=$dx12\n',
+    );
+    final targets = <Directory>[];
+    for (final variant in ['Win64r', 'Win64rh']) {
+      final directory = await Directory(
+        p.join(install, 'Engine', 'Binaries', variant),
+      ).create(recursive: true);
+      await File(p.join(directory.path, 'yysls.exe')).writeAsString('game');
+      targets.add(directory);
+    }
+    return (launcher, targets, settings);
+  }
+
+  test('燕云启动器解析 InstallPath，两个目录独立备份、配置、重启后卸载', () async {
+    await bundle();
+    final manager = await open();
+    final (launcher, targets, _) = await yysls();
+    for (var i = 0; i < targets.length; i++) {
+      await File(p.join(targets[i].path, 'version.dll'))
+          .writeAsString('original-$i');
+    }
+    final g = await manager.addManualGame('燕云十六声', launcher.path);
+    await manager.installMod(g.id, confirmOverwrite: true);
+    expect((await manager.view(g)).mod.kind, ModStateKind.applied);
+    expect(g.deployments.length, 2);
+    final config = (await manager.loadGameConfig(g.id))
+        .withValue('DLSSG', 'Optimized', '1');
+    await manager.saveGameConfig(g.id, config);
+    for (final target in targets) {
+      expect(
+        await File(p.join(target.path, 'version.dll')).readAsString(),
+        '040-version.dll',
+      );
+      expect(
+        await File(p.join(target.path, runtimeDriverFiles.first)).exists(),
+        isTrue,
+      );
+      expect(
+        await File(p.join(target.path, 'dlssg_sm86.ini')).readAsString(),
+        contains('Optimized=1'),
+      );
+    }
+    expect(
+      await File(p.join(launcher.parent.path, 'version.dll')).exists(),
+      isFalse,
+    );
+    final restarted = await open();
+    final saved = restarted.db.games.single;
+    expect(saved.deployments.length, 2);
+    await restarted.uninstallMod(saved.id);
+    for (var i = 0; i < targets.length; i++) {
+      expect(
+        await File(p.join(targets[i].path, 'version.dll')).readAsString(),
+        'original-$i',
+      );
+      expect(
+        await File(p.join(targets[i].path, 'dlssg_sm86.ini')).exists(),
+        isFalse,
+      );
+      expect(
+        await Directory(p.join(targets[i].path, 'dlssg_sm86')).exists(),
+        isFalse,
+      );
+    }
+  });
+
+  test('燕云关闭 DX12 时自动开启并从运行 EXE 安装', () async {
+    await bundle();
+    final manager = await open();
+    final (_, targets, settings) = await yysls(dx12: false);
+    final g = await manager.addManualGame(
+      '燕云',
+      p.join(targets.last.path, 'yysls.exe'),
+    );
+    await manager.installMod(g.id);
+    expect(await settings.readAsString(), contains('DX12=true'));
+    for (final target in targets) {
+      expect(await File(p.join(target.path, 'version.dll')).exists(), isTrue);
+    }
+    await File(p.join(targets.last.path, 'version.dll')).delete();
+    expect((await manager.view(g)).mod.kind, ModStateKind.notApplied);
+    await manager.installMod(g.id);
+    expect((await manager.view(g)).mod.kind, ModStateKind.applied);
+  });
+
+  test('燕云任一目标不存在时不开始部署', () async {
+    await bundle();
+    final manager = await open();
+    final (launcher, targets, _) = await yysls();
+    await File(p.join(targets.last.path, 'yysls.exe')).delete();
+    final g = await manager.addManualGame('燕云', launcher.path);
+    await expectLater(manager.installMod(g.id), throwsStateError);
+    expect(
+      await File(p.join(targets.first.path, 'version.dll')).exists(),
+      isFalse,
+    );
+  });
+
+  test('PBZ 从 Unreal EXE 添加仍在 platform/steam 部署和保存配置', () async {
+    await bundle();
+    final manager = await open();
+    final unreal = File(
+      p.join(
+        root.path,
+        'PBZ',
+        'ProjectPBZ',
+        'Binaries',
+        'Win64',
+        'PBZ-Win64-Shipping.exe',
+      ),
+    );
+    await unreal.parent.create(recursive: true);
+    await unreal.writeAsString('unreal');
+    final runtime = File(
+      p.join(root.path, 'PBZ', 'platform', 'steam', 'PBZ.exe'),
+    );
+    await runtime.parent.create(recursive: true);
+    await runtime.writeAsString('runtime');
+    final g = await manager.addManualGame('PBZ', unreal.path);
+    await manager.installMod(g.id);
+    expect((await manager.view(g)).mod.kind, ModStateKind.applied);
+    await manager.saveGameConfig(
+      g.id,
+      (await manager.loadGameConfig(g.id)).withValue('DLSSG', 'Optimized', '1'),
+    );
+    expect(
+      await File(p.join(runtime.parent.path, 'dlssg_sm86.ini')).readAsString(),
+      contains('Optimized=1'),
+    );
+    expect(
+      await File(p.join(unreal.parent.path, 'version.dll')).exists(),
+      isFalse,
+    );
+    await manager.uninstallMod(g.id);
+    expect(
+      await File(p.join(runtime.parent.path, 'version.dll')).exists(),
+      isFalse,
+    );
+  });
 
   test('离线 ZIP 原样保留，首次启动解包，重启复用缓存，安装完整目录及单个代理', () async {
     final archive = await bundle();

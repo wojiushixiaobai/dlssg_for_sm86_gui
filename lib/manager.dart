@@ -12,6 +12,7 @@ import 'package:uuid/uuid.dart';
 import 'package:win32/win32.dart';
 
 import 'models.dart';
+import 'game_layout.dart';
 import 'driver_fingerprints.dart';
 import 'dll_signature.dart';
 import 'steam.dart';
@@ -72,7 +73,7 @@ class DownloadProgress {
 class ModManager {
   // Increment when executable selection changes so existing state files are
   // refreshed even if Steam's manifests have not changed.
-  static const _steamExecutableDetectionVersion = 1;
+  static const _steamExecutableDetectionVersion = 2;
 
   ModManager._(
     this.root,
@@ -423,9 +424,57 @@ class ModManager {
       : File(game.exePath!).existsSync()
       ? TargetState.ready
       : TargetState.missing;
+  List<GameEntry> _deploymentGames(GameEntry game, {bool remember = false}) {
+    if (game.exePath == null) return [game];
+    final layout = GameLayout.resolve(game.exePath!);
+    if (layout.executables.length == 1) return [game];
+    return [
+      for (final executable in layout.executables)
+        (() {
+          final key = p.normalize(executable).toLowerCase();
+          final entry =
+              game.deployments[key] ??
+              GameEntry(
+                id: '${game.id}-${sha256.convert(utf8.encode(key)).toString().substring(0, 16)}',
+                name: game.name,
+                source: game.source,
+                exePath: executable,
+                selectedProxy: game.selectedProxy,
+              );
+          if (remember) game.deployments[key] = entry;
+          return entry;
+        })(),
+    ];
+  }
+
   ModStatus _modState(GameEntry game) {
     if (game.exePath == null) return const ModStatus(ModStateKind.notApplied);
-    final dir = File(game.exePath!).parent;
+    try {
+      final statuses = _deploymentGames(game).map(_modStateSingle).toList();
+      if (statuses.length == 1) return statuses.single;
+      final applied = statuses.where((s) => s.kind == ModStateKind.applied);
+      if (applied.length == statuses.length &&
+          applied.every(
+            (s) =>
+                s.version == applied.first.version &&
+                s.proxy == applied.first.proxy,
+          )) {
+        return applied.first;
+      }
+      return ModStatus(
+        ModStateKind.notApplied,
+        canUninstall: statuses.any((s) => s.canUninstall),
+      );
+    } on FileSystemException {
+      return const ModStatus(ModStateKind.notApplied);
+    } on StateError {
+      return const ModStatus(ModStateKind.notApplied);
+    }
+  }
+
+  ModStatus _modStateSingle(GameEntry game) {
+    if (game.exePath == null) return const ModStatus(ModStateKind.notApplied);
+    final dir = _deploymentDirectory(game);
     final recorded = game.install;
     final candidates = _candidateProxies(game);
     if (candidates.isEmpty ||
@@ -606,9 +655,28 @@ class ModManager {
     String? proxy,
     bool confirmOverwrite = false,
   }) async {
-    _requireMod();
     final game = _game(id);
-    final status = (await view(game)).mod;
+    if (game.exePath != null) GameLayout.resolve(game.exePath!).requireDx12();
+    final targets = _deploymentGames(game, remember: true);
+    for (final target in targets) {
+      _gameDirectory(target);
+    }
+    for (final target in targets) {
+      await _installModSingle(
+        target,
+        proxy: proxy,
+        confirmOverwrite: confirmOverwrite,
+      );
+    }
+  }
+
+  Future<void> _installModSingle(
+    GameEntry game, {
+    String? proxy,
+    bool confirmOverwrite = false,
+  }) async {
+    _requireMod();
+    final status = _modStateSingle(game);
     if ((status.kind == ModStateKind.applied &&
             requiresCleanInstall(status.version, _installedReleaseTag)) ||
         (game.install != null &&
@@ -886,6 +954,28 @@ class ModManager {
     String? expectedSha256,
   }) async {
     final game = _game(id);
+    final targets = _deploymentGames(game);
+    for (final target in targets) {
+      if (targets.length > 1 &&
+          target.install == null &&
+          _modStateSingle(target).kind == ModStateKind.notApplied) {
+        continue;
+      }
+      await _uninstallModSingle(
+        target,
+        proxy: proxy,
+        confirmUnrecognized: confirmUnrecognized,
+        expectedSha256: expectedSha256,
+      );
+    }
+  }
+
+  Future<void> _uninstallModSingle(
+    GameEntry game, {
+    String? proxy,
+    bool confirmUnrecognized = false,
+    String? expectedSha256,
+  }) async {
     final dir = _gameDirectory(game);
     final requested = proxy?.toLowerCase();
     if (requested != null && !proxies.contains(requested)) {
@@ -996,7 +1086,12 @@ class ModManager {
     final game = _game(id);
     final ini = game.exePath == null
         ? null
-        : File(p.join(File(game.exePath!).parent.path, 'dlssg_sm86.ini'));
+        : File(
+            p.join(
+              _deploymentDirectory(_deploymentGames(game).first).path,
+              'dlssg_sm86.ini',
+            ),
+          );
     if (ini != null && await ini.exists()) {
       final current = parseProfile(await ini.readAsString());
       if (hasModPackage) {
@@ -1020,11 +1115,19 @@ class ModManager {
   /// Immediately persists a game's custom settings to its dlssg_sm86.ini.
   Future<void> saveGameConfig(String id, ConfigProfile config) async {
     final game = _game(id);
-    final ini = File(p.join(_gameDirectory(game).path, 'dlssg_sm86.ini'));
-    if (!await ini.exists()) _requireMod();
-    await atomicWrite(ini, utf8.encode(config.toIni()));
+    final targets = _deploymentGames(game, remember: true);
+    for (final target in targets) {
+      _gameDirectory(target);
+    }
+    for (final target in targets) {
+      final ini = File(p.join(_gameDirectory(target).path, 'dlssg_sm86.ini'));
+      if (!await ini.exists()) _requireMod();
+      await atomicWrite(ini, utf8.encode(config.toIni()));
+      target.hasCustomConfig = true;
+      target.appliedProfileSha256 = await sha256File(ini);
+    }
     game.hasCustomConfig = true;
-    game.appliedProfileSha256 = await sha256File(ini);
+    game.appliedProfileSha256 = targets.first.appliedProfileSha256;
     await _save();
   }
 
@@ -1051,7 +1154,21 @@ class ModManager {
     if (game.exePath == null || !File(game.exePath!).existsSync()) {
       throw StateError('请先选择有效的游戏 EXE');
     }
-    return File(game.exePath!).parent;
+    final directory = _deploymentDirectory(game);
+    if (!directory.existsSync()) {
+      throw StateError('游戏部署目录不存在：${directory.path}');
+    }
+    return directory;
+  }
+
+  Directory _deploymentDirectory(GameEntry game) {
+    final layout = GameLayout.resolve(game.exePath!);
+    // Multi-target entries already identify their individual runtime EXE.
+    return File(
+      layout.executables.length == 1
+          ? layout.executables.single
+          : game.exePath!,
+    ).parent;
   }
 
   File _backupFile(GameEntry game, String proxy) =>

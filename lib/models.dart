@@ -106,7 +106,10 @@ class GameEntry {
     List<BackupRecord>? backups,
     this.createdAt,
     this.lastPlayedAt,
-  }) : backups = backups ?? [];
+    Map<String, GameEntry>? deployments,
+  }) : backups = backups ?? [],
+       deployments = deployments ?? {};
+  final Map<String, GameEntry> deployments;
   final String id;
   String name;
   GameSource source;
@@ -144,6 +147,10 @@ class GameEntry {
           .toList(),
       createdAt: _date(_string(map, 'createdAt', 'created_at')),
       lastPlayedAt: _date(_string(map, 'lastPlayedAt', 'last_played_at')),
+      deployments: {
+        for (final entry in _map(map['deployments']).entries)
+          entry.key: GameEntry.fromJson(entry.value),
+      },
     );
   }
   Map<String, dynamic> toJson() => {
@@ -158,6 +165,10 @@ class GameEntry {
     'backups': backups.map((x) => x.toJson()).toList(),
     'createdAt': createdAt?.toIso8601String(),
     'lastPlayedAt': lastPlayedAt?.toIso8601String(),
+    if (deployments.isNotEmpty)
+      'deployments': deployments.map(
+        (key, value) => MapEntry(key, value.toJson()),
+      ),
   };
 }
 
